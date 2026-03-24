@@ -1,4 +1,5 @@
 tf-output/
+tests/screenshots/
 *.tfstate
 *.tfstate.backup
 .terraform/

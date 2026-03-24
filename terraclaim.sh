@@ -145,7 +145,7 @@ flush_aws_warnings() {
   while IFS= read -r _warn_line; do
     err "${_warn_line}"
   done < "${_AWS_WARN_FILE}"
-  > "${_AWS_WARN_FILE}"
+  true > "${_AWS_WARN_FILE}"
 }
 
 # ---------------------------------------------------------------------------

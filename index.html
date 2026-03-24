@@ -224,6 +224,13 @@
       overflow: hidden;
       border: 1px solid var(--border);
       box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+
+    .terminal-wrap:hover {
+      border-color: var(--accent);
+      box-shadow: 0 32px 96px rgba(124,106,247,0.25), 0 24px 80px rgba(0,0,0,0.5);
+      transform: translateY(-6px) scale(1.02);
     }
 
     .terminal-bar {
@@ -956,7 +963,8 @@ Failed:                       1</pre>
 <section id="quickstart">
   <div class="section-label">Quickstart</div>
   <h2>Up and running in four commands</h2>
-  <p class="section-intro">You need the AWS CLI, Terraform 1.5+, jq, and Bash 4+. Then:</p>
+  <p class="section-intro">You need the AWS CLI, Terraform 1.5+, jq, and Bash 4.3+. Then:</p>
+  <p class="section-intro" style="font-size:0.9rem;color:var(--muted);margin-top:-0.75rem;"><strong>macOS users:</strong> the system Bash is 3.2 — install a newer version first: <code>brew install bash</code></p>
   <div class="qs-steps">
     <div class="qs-step">
       <div class="qs-num">1</div>

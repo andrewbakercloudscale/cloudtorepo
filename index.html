@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terraclaim — Claim your AWS estate as Terraform</title>
+  <link rel="icon" type="image/jpeg" href="terraclaim.jpg" />
+  <link rel="shortcut icon" href="terraclaim.jpg" />
+  <meta name="description" content="Terraclaim scans your AWS account and generates ready-to-use Terraform import blocks. No click-ops. No paid tools." />
+  <meta property="og:title" content="Terraclaim — Claim your AWS estate as Terraform" />
+  <meta property="og:description" content="Scan your AWS account and generate ready-to-use Terraform import blocks. No click-ops. No paid tools." />
+  <meta property="og:image" content="https://terraclaim.org/terraclaim.jpg" />
+  <meta property="og:url" content="https://terraclaim.org" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://terraclaim.org/terraclaim.jpg" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0d14;
+      --surface: #111622;
+      --surface2: #161d2e;
+      --border: #1e2a42;
+      --accent: #7c6af7;
+      --accent2: #5eead4;
+      --text: #e2e8f0;
+      --muted: #c8d3e0;
+      --code-bg: #0d1117;
+      --radius: 12px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* NAV */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+      height: 60px;
+      background: rgba(10, 13, 20, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .nav-logo span { color: var(--accent); }
+
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+
+    .nav-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    .btn-gh {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text) !important;
+      padding: 0.4rem 1rem;
+      border-radius: 8px;
+      font-size: 0.875rem !important;
+      font-weight: 500;
+      transition: background 0.2s, border-color 0.2s !important;
+    }
+
+    .btn-gh:hover { background: var(--border) !important; border-color: var(--accent) !important; color: var(--text) !important; }
+
+    /* HERO */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 6rem 2rem 4rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -200px; left: 50%; transform: translateX(-50%);
+      width: 900px; height: 600px;
+      background: radial-gradient(ellipse at center, rgba(124, 106, 247, 0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero::after {
+      content: '';
+      position: absolute;
+      bottom: -100px; right: -200px;
+      width: 600px; height: 400px;
+      background: radial-gradient(ellipse at center, rgba(94, 234, 212, 0.07) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(124, 106, 247, 0.1);
+      border: 1px solid rgba(124, 106, 247, 0.3);
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 0.3rem 0.8rem;
+      border-radius: 99px;
+      margin-bottom: 1.5rem;
+    }
+
+    .badge::before {
+      content: '';
+      width: 6px; height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+    }
+
+    h1 {
+      font-size: clamp(2.8rem, 6vw, 5rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+      margin-bottom: 1.25rem;
+    }
+
+    h1 .gradient {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-sub {
+      font-size: clamp(1rem, 2vw, 1.2rem);
+      color: var(--muted);
+      max-width: 560px;
+      margin-bottom: 2.5rem;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--accent);
+      color: #fff;
+      text-decoration: none;
+      padding: 0.75rem 1.75rem;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transition: opacity 0.2s, transform 0.15s;
+    }
+
+    .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+
+    .btn-outline {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: transparent;
+      color: var(--text);
+      text-decoration: none;
+      padding: 0.75rem 1.75rem;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      border: 1px solid var(--border);
+      transition: border-color 0.2s, background 0.2s, transform 0.15s;
+    }
+
+    .btn-outline:hover { border-color: var(--accent); background: rgba(124,106,247,0.07); transform: translateY(-1px); }
+
+    /* TERMINAL SNIPPET */
+    .terminal-wrap {
+      margin-top: 4rem;
+      width: 100%;
+      max-width: 680px;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    }
+
+    .terminal-bar {
+      background: var(--surface2);
+      padding: 0.6rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot-r { background: #ff5f57; }
+    .dot-y { background: #ffbd2e; }
+    .dot-g { background: #28c840; }
+
+    .terminal-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-left: auto;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    .terminal-body {
+      background: var(--code-bg);
+      padding: 1.25rem 1.5rem;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.85rem;
+      line-height: 1.8;
+    }
+
+    .terminal-body .prompt { color: var(--accent2); user-select: none; }
+    .terminal-body .cmd { color: var(--text); }
+    .terminal-body .flag { color: var(--accent); }
+    .terminal-body .val { color: #fbbf24; }
+    .terminal-body .comment { color: var(--muted); }
+    .terminal-body .out { color: #4ade80; }
+
+    /* SECTION LAYOUT */
+    section {
+      padding: 5rem 2rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+
+    h2 {
+      font-size: clamp(1.6rem, 3vw, 2.4rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 1rem;
+    }
+
+    .section-intro {
+      color: var(--muted);
+      max-width: 600px;
+      margin-bottom: 3rem;
+      font-size: 1.05rem;
+    }
+
+    /* HOW IT WORKS */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .step {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      position: relative;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .step:hover {
+      border-color: var(--accent);
+      background: var(--surface2);
+      transform: translateY(-6px) scale(1.02);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px var(--accent), 0 8px 32px rgba(124,106,247,0.2);
+    }
+
+    .step-num {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+
+    .step h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; color: #d4f700; }
+    .step p { font-size: 0.9rem; color: var(--muted); }
+
+    /* SERVICES */
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .service-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .service-card:hover {
+      border-color: var(--accent2);
+      background: var(--surface2);
+      transform: translateY(-6px) scale(1.02);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px var(--accent2), 0 8px 32px rgba(94,234,212,0.15);
+    }
+
+    .service-card h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--accent2);
+      margin-bottom: 1rem;
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .tag {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+    }
+
+    /* OUTPUT */
+    .output-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 640px) { .output-grid { grid-template-columns: 1fr; } }
+
+    .output-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .output-card:hover {
+      border-color: var(--accent);
+      background: var(--surface2);
+      transform: translateY(-6px) scale(1.02);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px var(--accent), 0 8px 32px rgba(124,106,247,0.2);
+    }
+
+    .output-card h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+
+    .output-card p {
+      font-size: 0.875rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.8rem;
+      line-height: 1.6;
+      overflow-x: auto;
+      color: var(--text);
+    }
+
+    pre .kw { color: var(--accent); }
+    pre .str { color: #fbbf24; }
+    pre .cm { color: var(--muted); }
+
+    /* QUICKSTART */
+    .qs-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .qs-step {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 1rem;
+      align-items: start;
+    }
+
+    .qs-num {
+      width: 32px; height: 32px;
+      background: rgba(124,106,247,0.15);
+      border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .qs-content h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.4rem; }
+    .qs-content p { font-size: 0.875rem; color: var(--muted); margin-bottom: 0.5rem; }
+
+    code {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.1em 0.4em;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.85em;
+      color: var(--accent2);
+    }
+
+    /* WHY HARD */
+    .hard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2.5rem;
+    }
+
+    .hard-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      border-left: 3px solid var(--accent);
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .hard-card:hover {
+      border-color: var(--accent);
+      background: var(--surface2);
+      transform: translateY(-6px) scale(1.02);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px var(--accent), 0 8px 32px rgba(124,106,247,0.2);
+    }
+
+    .hard-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #d4f700;
+      margin-bottom: 0.75rem;
+    }
+
+    .hard-card p {
+      font-size: 0.9rem;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .hard-card p + p { margin-top: 0.75rem; }
+
+    /* COPY BUTTON */
+    .pre-wrap {
+      position: relative;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 0.6rem;
+      right: 0.6rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+      font-size: 0.72rem;
+      font-weight: 500;
+      padding: 0.25rem 0.6rem;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      user-select: none;
+    }
+
+    .copy-btn:hover {
+      background: var(--border);
+      color: var(--text);
+      border-color: var(--accent);
+    }
+
+    .copy-btn.copied {
+      color: var(--accent2);
+      border-color: var(--accent2);
+    }
+
+    /* DIVIDER */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 0;
+    }
+
+    /* FOOTER */
+    footer {
+      text-align: center;
+      padding: 3rem 2rem;
+      color: var(--muted);
+      font-size: 0.875rem;
+      border-top: 1px solid var(--border);
+    }
+
+    footer a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
+    footer a:hover { color: var(--accent); }
+
+    /* RESPONSIVE */
+    @media (max-width: 640px) {
+      nav { padding: 0 1rem; }
+      .nav-links a:not(.btn-gh) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="#"><span>terra</span>claim</a>
+  <div class="nav-links">
+    <a href="#why-hard">Why it's hard</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#services">Services</a>
+    <a href="#drift">Drift detection</a>
+    <a href="#run">Automation</a>
+    <a href="#quickstart">Quickstart</a>
+    <a class="btn-gh" href="https://github.com/andrewbakercloudscale/terraclaim" target="_blank" rel="noopener">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <img src="terraclaim.jpg" alt="Terraclaim" style="width:120px;height:120px;object-fit:contain;margin-bottom:1.5rem;filter:drop-shadow(0 0 24px rgba(124,106,247,0.4));" />
+  <div class="badge">Open Source &mdash; MIT License</div>
+  <h1>Claim your AWS estate<br>as <span class="gradient">Terraform</span></h1>
+  <p class="hero-sub">
+    Terraclaim scans your AWS account and generates ready-to-use Terraform
+    <code style="background:rgba(94,234,212,0.1);border-color:rgba(94,234,212,0.2);color:var(--accent2);">import {}</code> blocks,
+    resource skeletons, and S3 remote-state backends. No click-ops. No paid tools.
+  </p>
+  <div class="hero-actions">
+    <a class="btn-primary" href="https://github.com/andrewbakercloudscale/terraclaim" target="_blank" rel="noopener">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      View on GitHub
+    </a>
+    <a class="btn-outline" href="#quickstart">Get started &darr;</a>
+  </div>
+
+  <div class="terminal-wrap">
+    <div class="terminal-bar">
+      <div class="dot dot-r"></div>
+      <div class="dot dot-y"></div>
+      <div class="dot dot-g"></div>
+      <span class="terminal-label">terraclaim</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="prompt">$ </span><span class="cmd">./terraclaim.sh \</span></div>
+      <div>&nbsp;&nbsp;<span class="flag">--regions</span> <span class="val">"us-east-1,eu-west-1"</span> \</div>
+      <div>&nbsp;&nbsp;<span class="flag">--services</span> <span class="val">"ec2,eks,rds,s3,vpc"</span> \</div>
+      <div>&nbsp;&nbsp;<span class="flag">--state-bucket</span> <span class="val">my-tf-state-prod</span> \</div>
+      <div>&nbsp;&nbsp;<span class="flag">--output</span> <span class="val">./tf-output</span></div>
+      <br>
+      <div><span class="out">Scanning ec2 in us-east-1 ... 24 resources</span></div>
+      <div><span class="out">Scanning eks in us-east-1 ... 3 clusters</span></div>
+      <div><span class="out">Scanning rds in us-east-1 ... 8 instances</span></div>
+      <div><span class="out">Done. Output written to ./tf-output/</span></div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- WHY HARD -->
+<section id="why-hard">
+  <div class="section-label">Context</div>
+  <h2>Why this is hard — and why most guides get it wrong</h2>
+  <p class="section-intro" style="max-width:100%;">
+    The instinct is to think of this as "exporting Terraform." It is not. What you are
+    actually doing is closer to <strong style="color:var(--text);">reverse compilation</strong>:
+    discovering all resources across accounts and regions, generating Terraform configuration
+    from live infrastructure, reconstructing dependencies, capturing state, and then
+    refactoring everything into something a human can maintain.
+  </p>
+
+  <div class="hard-grid">
+    <div class="hard-card">
+      <h3>The tooling is older than it appears</h3>
+      <p>
+        Terraformer, the tool most guides recommend, was built by the Waze engineering team
+        and has not had meaningful maintenance in years. It works, but it predates
+        Terraform's native <code>import {}</code> blocks and generates output that needs
+        significant cleanup.
+      </p>
+      <p>
+        Former2 is primarily a browser-based tool, and the CLI variant is a separate
+        community project with limited coverage. Both are fine for getting a rough baseline,
+        but neither should be your primary strategy in 2026.
+      </p>
+    </div>
+    <div class="hard-card">
+      <h3>AWS was never designed to be reverse-compiled</h3>
+      <p>
+        Resources reference each other in ways that tooling will not always catch. Some
+        services do not map cleanly to Terraform resources no matter what you do.
+      </p>
+      <p>
+        IAM is particularly brutal — the relationship between roles, policies, attachments,
+        and instance profiles is rarely clean in a lived-in estate. Accept these rough edges
+        going in and you will be far less surprised.
+      </p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- HOW IT WORKS -->
+<section id="how-it-works">
+  <div class="section-label">How it works</div>
+  <h2>From live AWS to Terraform in minutes</h2>
+  <p class="section-intro">
+    Terraclaim uses the AWS CLI to discover your resources, then writes the Terraform files
+    needed to bring them under version control — with no manual resource hunting required.
+  </p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">STEP 01</div>
+      <h3>Scan your account</h3>
+      <p>Run the script against one region or sweep an entire organisation across multiple accounts and regions.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">STEP 02</div>
+      <h3>Import blocks generated</h3>
+      <p>One <code>import {}</code> block per discovered resource, grouped into per-service directories — ready for Terraform 1.5+.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">STEP 03</div>
+      <h3>Auto-populate config</h3>
+      <p>Run <code>terraform plan -generate-config-out=generated.tf</code> in any service dir. Terraform reads live state and writes fully-populated HCL.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">STEP 04</div>
+      <h3>Detect drift</h3>
+      <p>Run <code>drift.sh</code> regularly to catch resources created or deleted outside Terraform. Use <code>--apply</code> to patch <code>imports.tf</code> automatically.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- SERVICES -->
+<section id="services">
+  <div class="section-label">Supported services</div>
+  <h2>45+ AWS services covered</h2>
+  <p class="section-intro">All the core services you need to bring a real-world AWS estate under Terraform control.</p>
+  <div class="service-grid">
+    <div class="service-card">
+      <h3>Compute</h3>
+      <div class="tags">
+        <span class="tag">ec2</span><span class="tag">ebs</span><span class="tag">ecs</span><span class="tag">eks</span><span class="tag">lambda</span>
+      </div>
+    </div>
+    <div class="service-card">
+      <h3>Networking</h3>
+      <div class="tags">
+        <span class="tag">vpc</span><span class="tag">elb</span><span class="tag">cloudfront</span><span class="tag">route53</span><span class="tag">acm</span><span class="tag">transitgateway</span><span class="tag">vpcendpoints</span>
+      </div>
+    </div>
+    <div class="service-card">
+      <h3>Data</h3>
+      <div class="tags">
+        <span class="tag">rds</span><span class="tag">dynamodb</span><span class="tag">elasticache</span><span class="tag">msk</span><span class="tag">s3</span><span class="tag">efs</span><span class="tag">opensearch</span><span class="tag">redshift</span><span class="tag">documentdb</span>
+      </div>
+    </div>
+    <div class="service-card">
+      <h3>Streaming</h3>
+      <div class="tags">
+        <span class="tag">kinesis</span><span class="tag">firehose</span>
+      </div>
+    </div>
+    <div class="service-card">
+      <h3>Integration</h3>
+      <div class="tags">
+        <span class="tag">sqs</span><span class="tag">sns</span><span class="tag">apigateway</span><span class="tag">eventbridge</span><span class="tag">stepfunctions</span><span class="tag">ses</span>
+      </div>
+    </div>
+    <div class="service-card">
+      <h3>Security &amp; Compliance</h3>
+      <div class="tags">
+        <span class="tag">iam</span><span class="tag">kms</span><span class="tag">secretsmanager</span><span class="tag">wafv2</span><span class="tag">config</span><span class="tag">cloudtrail</span><span class="tag">guardduty</span>
+      </div>
+    </div>
+    <div class="service-card">
+      <h3>Platform &amp; CI/CD</h3>
+      <div class="tags">
+        <span class="tag">ecr</span><span class="tag">ssm</span><span class="tag">cloudwatch</span><span class="tag">backup</span><span class="tag">codepipeline</span><span class="tag">codebuild</span>
+      </div>
+    </div>
+    <div class="service-card">
+      <h3>Auth</h3>
+      <div class="tags">
+        <span class="tag">cognito</span>
+      </div>
+    </div>
+    <div class="service-card">
+      <h3>ETL &amp; Analytics</h3>
+      <div class="tags">
+        <span class="tag">glue</span>
+      </div>
+    </div>
+    <div class="service-card">
+      <h3>Storage &amp; Transfer</h3>
+      <div class="tags">
+        <span class="tag">fsx</span><span class="tag">transfer</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- OUTPUT -->
+<section id="output">
+  <div class="section-label">Output</div>
+  <h2>Clean, structured Terraform files</h2>
+  <p class="section-intro">Each service gets its own directory with three files that Terraform can use immediately.</p>
+  <div class="output-grid">
+    <div class="output-card">
+      <h3>imports.tf</h3>
+      <p>One <code>import {}</code> block per discovered resource.</p>
+<pre><span class="kw">import</span> {
+  to = aws_eks_cluster.<span class="str">cluster_production</span>
+  id = <span class="str">"production"</span>
+}
+
+<span class="kw">import</span> {
+  to = aws_rds_instance.<span class="str">db_primary</span>
+  id = <span class="str">"prod-postgres-01"</span>
+}</pre>
+    </div>
+    <div class="output-card">
+      <h3>backend.tf</h3>
+      <p>S3 remote state configuration and AWS provider block, ready to init.</p>
+<pre><span class="kw">terraform</span> {
+  backend <span class="str">"s3"</span> {
+    bucket = <span class="str">"my-tf-state"</span>
+    key    = <span class="str">"us-east-1/eks/terraform.tfstate"</span>
+    region = <span class="str">"us-east-1"</span>
+  }
+}</pre>
+    </div>
+    <div class="output-card">
+      <h3>resources.tf</h3>
+      <p>Empty resource skeletons matching every import block — populated by <code>terraform plan -generate-config-out</code>.</p>
+<pre><span class="kw">resource</span> <span class="str">"aws_eks_cluster"</span> <span class="str">"cluster_production"</span> {
+  <span class="cm"># populated by terraform plan</span>
+  <span class="cm"># -generate-config-out=generated.tf</span>
+}</pre>
+    </div>
+    <div class="output-card">
+      <h3>Directory structure</h3>
+      <p>Organised by account &rarr; region &rarr; service for easy navigation.</p>
+<pre>tf-output/
+&#x251C;&#x2500;&#x2500; summary.txt
+&#x2514;&#x2500;&#x2500; 123456789012/
+    &#x251C;&#x2500;&#x2500; us-east-1/
+    &#x2502;   &#x251C;&#x2500;&#x2500; ec2/
+    &#x2502;   &#x251C;&#x2500;&#x2500; eks/
+    &#x2502;   &#x2514;&#x2500;&#x2500; rds/
+    &#x2514;&#x2500;&#x2500; eu-west-1/</pre>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- DRIFT -->
+<section id="drift">
+  <div class="section-label">Drift detection</div>
+  <h2>Stay in sync after day one</h2>
+  <p class="section-intro">
+    Once your Terraform baseline is committed, <code>drift.sh</code> re-scans AWS and
+    diffs the results against your <code>imports.tf</code> files — no AWS Resource Explorer required.
+  </p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">NEW</div>
+      <h3>Resources added outside Terraform</h3>
+      <p>Found in AWS but missing from <code>imports.tf</code>. With <code>--apply</code>, new <code>import {}</code> blocks are appended automatically.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">REMOVED</div>
+      <h3>Resources deleted outside Terraform</h3>
+      <p>Present in <code>imports.tf</code> but no longer in AWS. With <code>--apply</code>, stale blocks are commented out with a timestamp.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">CI</div>
+      <h3>Run on a schedule</h3>
+      <p>Drop <code>drift.sh</code> into a nightly CI job. Pipe the output to Slack or write it to <code>--report</code> to track drift over time.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:2rem;">
+    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Sample drift report</h3>
+<pre><span class="cm"># report only</span>
+./drift.sh --output ./tf-output --regions <span class="str">"us-east-1"</span>
+
+<span class="cm"># apply changes to imports.tf</span>
+./drift.sh --output ./tf-output --regions <span class="str">"us-east-1"</span> --apply
+
+<span class="cm">-------------------------------------------------------</span>
+<span class="kw">NEW</span>  (2 resource(s) found in AWS, not in imports.tf)
+  + aws_instance.web_server_new  (id: i-0abc123def456)
+  + aws_instance.batch_worker    (id: i-0def789abc012)
+<span class="kw">REMOVED</span>  (1 resource(s) in imports.tf, no longer in AWS)
+  - aws_instance.old_bastion     (id: i-0111222333444)
+<span class="cm">-------------------------------------------------------</span>
+Unchanged:               22
+New (not yet imported):   2
+Removed (stale):          1</pre>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<hr class="divider" />
+
+<!-- RUN -->
+<section id="run">
+  <div class="section-label">Workflow automation</div>
+  <h2>One command to rule them all</h2>
+  <p class="section-intro">
+    After exporting, <code>run.sh</code> automates the <code>terraform init</code> +
+    <code>terraform plan -generate-config-out=generated.tf</code> step across every
+    service directory — no more running it manually per folder.
+  </p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">AUTO</div>
+      <h3>Walk the entire output tree</h3>
+      <p>Finds every directory with an <code>imports.tf</code> and runs Terraform in it. Filter by account, region, or service to process a subset.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">PAR</div>
+      <h3>Parallel runs</h3>
+      <p>Up to <code>--parallel 3</code> concurrent Terraform processes by default. Logs per directory, pass/fail/no-change summary at the end.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">FAST</div>
+      <h3>Parallel scans + auto-retry</h3>
+      <p><code>terraclaim.sh</code> and <code>drift.sh</code> scan up to <code>--parallel 5</code> services simultaneously. All AWS API calls automatically retry on throttling with exponential back-off.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:2rem;">
+    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">run.sh usage</h3>
+<pre><span class="cm"># process everything</span>
+./run.sh --output ./tf-output
+
+<span class="cm"># filter to specific services and region</span>
+./run.sh --output ./tf-output \
+  --regions <span class="str">"us-east-1"</span> \
+  --services <span class="str">"ec2,eks,rds"</span>
+
+<span class="cm"># preview directories without running terraform</span>
+./run.sh --output ./tf-output --dry-run
+
+<span class="cm">-------------------------------------------------------</span>
+  [OK]        123456789012/us-east-1/eks
+  [OK]        123456789012/us-east-1/rds
+  [no-change] 123456789012/us-east-1/s3
+  [FAIL]      123456789012/us-east-1/iam  (see .run.log)
+<span class="cm">-------------------------------------------------------</span>
+Succeeded (changes written):  2
+No changes:                   1
+Failed:                       1</pre>
+    </div>
+  </div>
+</section>
+
+<!-- QUICKSTART -->
+<section id="quickstart">
+  <div class="section-label">Quickstart</div>
+  <h2>Up and running in four commands</h2>
+  <p class="section-intro">You need the AWS CLI, Terraform 1.5+, jq, and Bash 4+. Then:</p>
+  <div class="qs-steps">
+    <div class="qs-step">
+      <div class="qs-num">1</div>
+      <div class="qs-content">
+        <h3>Clone the repo</h3>
+        <pre>git clone https://github.com/andrewbakercloudscale/terraclaim.git
+cd terraclaim
+chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
+      </div>
+    </div>
+    <div class="qs-step">
+      <div class="qs-num">2</div>
+      <div class="qs-content">
+        <h3>Dry-run to preview resource counts</h3>
+        <pre>./terraclaim.sh \
+  --regions "us-east-1" \
+  --services "ec2,vpc,rds" \
+  --dry-run</pre>
+      </div>
+    </div>
+    <div class="qs-step">
+      <div class="qs-num">3</div>
+      <div class="qs-content">
+        <h3>Export with S3 remote state</h3>
+        <pre>./terraclaim.sh \
+  --regions "us-east-1,eu-west-1" \
+  --services "ec2,eks,rds,s3,vpc" \
+  --state-bucket my-tf-state-prod \
+  --parallel 5 \
+  --output ./tf-output</pre>
+      </div>
+    </div>
+    <div class="qs-step">
+      <div class="qs-num">4</div>
+      <div class="qs-content">
+        <h3>Populate all service directories at once</h3>
+        <pre>./run.sh --output ./tf-output</pre>
+        <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">Runs <code>terraform init</code> + <code>terraform plan -generate-config-out=generated.tf</code> in every service directory. Review <code>generated.tf</code>, remove computed attributes, and commit.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- FOOTER -->
+<footer>
+  <p style="margin-bottom:0.5rem;">
+    <strong style="color:var(--text);">terraclaim</strong> &mdash; open source, MIT licensed
+  </p>
+  <p style="margin-bottom:0.75rem;">
+    Built by <a href="https://andrewbaker.ninja" target="_blank" rel="noopener" style="color:var(--accent2);font-weight:600;text-decoration:none;transition:color 0.2s;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--accent2)'">Andrew Baker</a>
+    <span style="color:var(--border);">&mdash;</span>
+    <span style="color:var(--muted);font-size:0.8rem;">Hands on CIO of Capitec Bank</span>
+  </p>
+  <p>
+    <a href="https://github.com/andrewbakercloudscale/terraclaim" target="_blank" rel="noopener">GitHub</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://andrewbaker.ninja/2026/03/21/reverse-engineering-your-aws-estate-into-terraform-using-terraclaim-org/" target="_blank" rel="noopener">Blog post</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://github.com/andrewbakercloudscale/terraclaim/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+  </p>
+</footer>
+
+<script>
+  document.querySelectorAll('pre').forEach(function(pre) {
+    var wrap = document.createElement('div');
+    wrap.className = 'pre-wrap';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+
+    var btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = 'Copy';
+    wrap.appendChild(btn);
+
+    btn.addEventListener('click', function() {
+      navigator.clipboard.writeText(pre.innerText).then(function() {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(function() {
+          btn.textContent = 'Copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      });
+    });
+  });
+</script>
+</body>
+</html>

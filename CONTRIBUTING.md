@@ -1,4 +1,4 @@
-# Contributing to aws-tf-reverse
+# Contributing to Terraclaim
 
 Thank you for your interest in contributing!
 
@@ -21,7 +21,7 @@ significantly speeds up implementation.
 2. Make your changes.
 3. Ensure ShellCheck passes locally:
    ```bash
-   shellcheck aws-tf-reverse.sh reconcile.sh examples/*.sh
+   shellcheck terraclaim.sh drift.sh reconcile.sh examples/*.sh
    ```
 4. Open a pull request with a clear description of the change and why it is
    needed.
@@ -31,7 +31,7 @@ significantly speeds up implementation.
 ## Adding support for a new service
 
 Each service is implemented as a single `export_<service>()` function in
-`aws-tf-reverse.sh`.  Follow the pattern of an existing exporter:
+`terraclaim.sh`.  Follow the pattern of an existing exporter:
 
 1. **List resources** using the AWS CLI with `--output text`.
 2. **Build `imports` and `types` arrays** — each pair is a Terraform resource
@@ -40,7 +40,11 @@ Each service is implemented as a single `export_<service>()` function in
    `write_resources_tf`.
 4. **Register the function** in the `dispatch_service` case statement.
 5. **Add the service name** to the `SERVICES` default at the top of the script.
-6. **Document** the service in the README supported-services table.
+6. **Add a matching `scan_<service>()` function in `drift.sh`** — same AWS CLI
+   calls but populating `LIVE_PAIRS` only (no file I/O). Register it in
+   `scan_service` and add to the `SERVICES` default in `drift.sh`.
+7. **Document** the service in the README supported-services table and the
+   services grid in `index.html`, then run `./sync.sh` to deploy the site.
 
 ### Minimal example skeleton
 

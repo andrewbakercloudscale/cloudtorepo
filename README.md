@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="terraclaim.jpg" alt="Terraclaim" width="160" />
+</p>
+
 # Terraclaim
 
 Claim your AWS estate as Terraform — using scripts, not click-ops.
@@ -9,7 +13,7 @@ remote-state backends.  After running the script you can execute
 capture the full live configuration automatically.
 
 Explained in detail on the blog:
-<https://andrewbaker.ninja/2026/03/21/reverse-engineering-your-aws-estate-into-terraform-using-scripts-not-click-ops/>
+<https://andrewbaker.ninja/2026/03/21/reverse-engineering-your-aws-estate-into-terraform-using-terraclaim-org/>
 
 ---
 
@@ -35,13 +39,13 @@ jq --version
 ```bash
 git clone https://github.com/andrewbakercloudscale/terraclaim.git
 cd terraclaim
-chmod +x aws-tf-reverse.sh reconcile.sh examples/*.sh
+chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
 ```
 
 ### 1. Dry-run — preview resource counts without writing files
 
 ```bash
-./aws-tf-reverse.sh \
+./terraclaim.sh \
   --regions "us-east-1" \
   --services "ec2,vpc,rds" \
   --dry-run
@@ -50,7 +54,7 @@ chmod +x aws-tf-reverse.sh reconcile.sh examples/*.sh
 ### 2. Single account with S3 remote state
 
 ```bash
-./aws-tf-reverse.sh \
+./terraclaim.sh \
   --regions "us-east-1,eu-west-1" \
   --services "ec2,eks,rds,s3,vpc" \
   --state-bucket my-tf-state-prod \
@@ -61,7 +65,7 @@ chmod +x aws-tf-reverse.sh reconcile.sh examples/*.sh
 ### 3. Multi-account organisation sweep
 
 ```bash
-./aws-tf-reverse.sh \
+./terraclaim.sh \
   --accounts "123456789012,234567890123,345678901234" \
   --role OrganizationAccountAccessRole \
   --regions "us-east-1,eu-west-1,ap-southeast-2" \
@@ -83,8 +87,11 @@ chmod +x aws-tf-reverse.sh reconcile.sh examples/*.sh
 | `--state-bucket` | S3 bucket for remote state `backend "s3"` | — (local state) |
 | `--state-region` | Region of the state S3 bucket | Same as resource region |
 | `--output` | Root output directory | `./tf-output` |
+| `--parallel` | Max concurrent service scans | `5` |
+| `--exclude-services` | Comma-separated services to skip | — |
 | `--dry-run` | Print resource counts; do not write files | `false` |
 | `--debug` | Verbose logging | `false` |
+| `--version` | Print version and exit | — |
 
 ---
 
@@ -94,10 +101,14 @@ chmod +x aws-tf-reverse.sh reconcile.sh examples/*.sh
 |----------|---------|
 | Compute | `ec2`, `ebs`, `ecs`, `eks`, `lambda` |
 | Networking | `vpc`, `elb`, `cloudfront`, `route53`, `acm`, `transitgateway`, `vpcendpoints` |
-| Data | `rds`, `dynamodb`, `elasticache`, `msk`, `s3`, `efs`, `opensearch` |
-| Integration | `sqs`, `sns`, `apigateway`, `eventbridge`, `stepfunctions` |
-| Security & Compliance | `iam`, `kms`, `secretsmanager`, `wafv2`, `config` |
-| Platform | `ecr`, `ssm`, `cloudwatch` |
+| Data | `rds`, `dynamodb`, `elasticache`, `msk`, `s3`, `efs`, `opensearch`, `redshift`, `documentdb` |
+| Streaming | `kinesis` (Data Streams + Firehose) |
+| Integration | `sqs`, `sns`, `apigateway`, `eventbridge`, `stepfunctions`, `ses` |
+| Security & Compliance | `iam`, `kms`, `secretsmanager`, `wafv2`, `config`, `cloudtrail`, `guardduty` |
+| Platform | `ecr`, `ssm`, `cloudwatch`, `backup`, `codepipeline`, `codebuild` |
+| Auth | `cognito` (user pools + identity pools) |
+| ETL | `glue` (jobs, crawlers, databases, connections) |
+| Storage | `fsx` (Windows, Lustre, ONTAP, OpenZFS), `transfer` (SFTP/FTPS servers + users) |
 
 ---
 
@@ -152,6 +163,46 @@ then commit as your Terraform baseline.
 
 ---
 
+## Automating the plan step with run.sh
+
+Instead of running `terraform init` + `terraform plan` manually in every service directory,
+use `run.sh` to process the entire output tree in one command:
+
+```bash
+# Process every service directory under tf-output
+./run.sh --output ./tf-output
+
+# Limit to specific accounts, regions, or services
+./run.sh --output ./tf-output --regions "us-east-1" --services "ec2,eks,rds"
+
+# Only run terraform init (skip the plan)
+./run.sh --output ./tf-output --init-only
+
+# Preview which directories would be processed
+./run.sh --output ./tf-output --dry-run
+
+# Run up to 5 terraform processes in parallel (default: 3)
+./run.sh --output ./tf-output --parallel 5
+```
+
+Each service directory gets a `.run.log` file. A summary at the end shows which
+directories succeeded, had no changes, or failed.
+
+### run.sh options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--output` | Output directory from `terraclaim.sh` | `./tf-output` |
+| `--services` | Limit to specific services | All |
+| `--regions` | Limit to specific regions | All |
+| `--accounts` | Limit to specific accounts | All |
+| `--parallel` | Max concurrent terraform runs | `3` |
+| `--init-only` | Only run `terraform init`, skip plan | `false` |
+| `--dry-run` | Print directories; do not run terraform | `false` |
+| `--debug` | Verbose logging | `false` |
+
+---
+
 ## Checking coverage with reconcile.sh
 
 After exporting, verify you haven't missed any resources by comparing the output
@@ -180,15 +231,79 @@ Resource Explorer must be enabled with an **aggregator index** in `--index-regio
 
 ---
 
+## Detecting drift with drift.sh
+
+After establishing a Terraform baseline, use `drift.sh` to detect resources that have
+been created or deleted outside of Terraform. Unlike `reconcile.sh`, drift detection
+requires no additional AWS services — it uses only the AWS CLI.
+
+```bash
+# Report only — see what has changed without touching any files
+./drift.sh --output ./tf-output --regions "us-east-1"
+
+# Scope to specific services
+./drift.sh --output ./tf-output --regions "us-east-1" --services "ec2,rds,eks"
+
+# Apply — update imports.tf in place (adds new blocks, comments out deleted ones)
+./drift.sh --output ./tf-output --regions "us-east-1" --apply
+
+# Save report to file
+./drift.sh --output ./tf-output --apply --report ./drift-report.txt
+```
+
+Sample output:
+
+```
+Terraclaim Drift Report
+Generated: 2026-03-24T10:00:00Z
+=======================================================
+
+  123456789012 / us-east-1 / ec2
+  -------------------------------------------------------
+  NEW  (2 resource(s) found in AWS, not in imports.tf)
+    + aws_instance.web_server_new  (id: i-0abc123def456)
+    + aws_instance.batch_worker    (id: i-0def789abc012)
+  REMOVED  (1 resource(s) in imports.tf, no longer in AWS)
+    - aws_instance.old_bastion     (id: i-0111222333444)
+
+=======================================================
+Summary
+-------
+Unchanged:               22
+New (not yet imported):   2
+Removed (stale):          1
+
+Run with --apply to update imports.tf files automatically.
+```
+
+### drift.sh options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--output` | Output directory from `terraclaim.sh` | `./tf-output` |
+| `--accounts` | Comma-separated account IDs | Current account |
+| `--regions` | Comma-separated regions | `us-east-1` |
+| `--services` | Comma-separated services | All supported services |
+| `--role` | IAM role to assume in each account | — |
+| `--apply` | Update `imports.tf` in place | `false` |
+| `--report` | Write report to file in addition to stdout | — |
+| `--parallel` | Max concurrent service scans | `5` |
+| `--exclude-services` | Comma-separated services to skip | — |
+| `--debug` | Verbose logging | `false` |
+
+---
+
 ## Recommended workflow
 
 1. Run with `--dry-run` to verify resource counts and permissions.
-2. Export a single region with your highest-priority services.
-3. For each service: `terraform init` → `terraform plan -generate-config-out=generated.tf`.
-4. Review generated configuration; remove computed attributes.
-5. Run `reconcile.sh` to identify gaps.
+2. Export a single region with your highest-priority services (use `--parallel 5` for speed).
+3. Run `run.sh --output ./tf-output` to execute `terraform init` + `terraform plan` across all service directories automatically.
+4. Review `generated.tf` in each directory; remove computed / read-only attributes.
+5. Run `reconcile.sh` to identify gaps (requires AWS Resource Explorer).
 6. Commit the baseline on a `baseline-import` branch.
 7. Refactor incrementally via pull requests.
+8. Run `drift.sh` regularly (or in CI) to catch resources created outside Terraform.
+9. Use `--exclude-services` to skip services managed by a different team or tool.
 
 ---
 

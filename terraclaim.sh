@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# aws-tf-reverse.sh — Reverse-engineer an AWS estate into Terraform import blocks.
+# terraclaim.sh — Reverse-engineer an AWS estate into Terraform import blocks.
 #
 # Generates backend.tf, imports.tf, and resources.tf per account/region/service
 # so you can run `terraform plan -generate-config-out=generated.tf` to capture
@@ -8,7 +8,7 @@
 # Requirements: aws-cli >= 2, terraform >= 1.5, jq >= 1.6
 #
 # Usage:
-#   ./aws-tf-reverse.sh [OPTIONS]
+#   ./terraclaim.sh [OPTIONS]
 #
 # Options:
 #   --accounts  "id1,id2"           Comma-separated account IDs (default: current)
@@ -18,8 +18,11 @@
 #   --state-bucket "bucket"         S3 bucket for remote state backend
 #   --state-region "region"         Region of the state S3 bucket
 #   --output    "./tf-output"       Root output directory (default: ./tf-output)
+#   --parallel  5                   Max concurrent service scans (default: 5, set to 1 to disable)
+#   --exclude-services "svc1,svc2"  Comma-separated services to skip
 #   --dry-run                       Print resource counts; do not write files
 #   --debug                         Verbose logging
+#   --version                       Print version and exit
 #   --help                          Show this help
 
 set -euo pipefail
@@ -29,13 +32,16 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 ACCOUNTS=""
 REGIONS="us-east-1"
-SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch"
+SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch,kinesis,cognito,cloudtrail,guardduty,backup,redshift,glue,ses,codepipeline,codebuild,documentdb,fsx,transfer"
+EXCLUDE_SERVICES=""
 ROLE_NAME=""
 STATE_BUCKET=""
 STATE_REGION=""
 OUTPUT_DIR="./tf-output"
+PARALLEL=5
 DRY_RUN=false
 DEBUG=false
+VERSION="1.0.0"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -67,9 +73,12 @@ while [[ $# -gt 0 ]]; do
     --state-bucket) STATE_BUCKET="$2"; shift 2 ;;
     --state-region) STATE_REGION="$2"; shift 2 ;;
     --output)       OUTPUT_DIR="$2";   shift 2 ;;
-    --dry-run)      DRY_RUN=true;      shift ;;
-    --debug)        DEBUG=true;        shift ;;
-    --help|-h)      usage ;;
+    --parallel)         PARALLEL="$2";          shift 2 ;;
+    --exclude-services) EXCLUDE_SERVICES="$2";  shift 2 ;;
+    --dry-run)          DRY_RUN=true;           shift ;;
+    --debug)            DEBUG=true;             shift ;;
+    --version)          echo "terraclaim ${VERSION}"; exit 0 ;;
+    --help|-h)          usage ;;
     *) die "Unknown option: $1 — run with --help for usage." ;;
   esac
 done
@@ -89,6 +98,32 @@ if [[ "$TF_MAJOR" -lt 1 ]] || { [[ "$TF_MAJOR" -eq 1 ]] && [[ "$TF_MINOR" -lt 5 
 fi
 
 # ---------------------------------------------------------------------------
+# AWS CLI wrapper — retries on throttling with exponential back-off + jitter
+# ---------------------------------------------------------------------------
+aws() {
+  local attempt=1 delay=1 max=5 out ec
+  while true; do
+    out=$(command aws "$@" 2>&1); ec=$?
+    if [[ $ec -eq 0 ]]; then
+      printf '%s' "${out}"
+      return 0
+    fi
+    if [[ $attempt -lt $max ]] && \
+       echo "${out}" | grep -qiE 'ThrottlingException|RequestLimitExceeded|Rate exceeded|Throttling|SlowDown|TooManyRequestsException'; then
+      local jitter; jitter=$(awk "BEGIN{srand(${RANDOM}); printf \"%.2f\", rand()}")
+      local sleep_time; sleep_time=$(awk "BEGIN{printf \"%.2f\", ${delay} + ${jitter}}")
+      debug "  [backoff] throttled — attempt ${attempt}/${max}, retrying in ${sleep_time}s"
+      sleep "${sleep_time}"
+      delay=$(( delay * 2 ))
+      attempt=$(( attempt + 1 ))
+    else
+      printf '%s\n' "${out}" >&2
+      return $ec
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------
 # Resolve accounts
 # ---------------------------------------------------------------------------
 if [[ -z "${ACCOUNTS}" ]]; then
@@ -102,6 +137,22 @@ IFS=',' read -ra ACCOUNT_LIST <<< "${ACCOUNTS}"
 IFS=',' read -ra REGION_LIST  <<< "${REGIONS}"
 IFS=',' read -ra SERVICE_LIST <<< "${SERVICES}"
 
+# Apply --exclude-services filter
+if [[ -n "${EXCLUDE_SERVICES}" ]]; then
+  IFS=',' read -ra _EXCL <<< "${EXCLUDE_SERVICES}"
+  _FILTERED=()
+  for _svc in "${SERVICE_LIST[@]}"; do
+    _svc="${_svc// /}"
+    _skip=false
+    for _ex in "${_EXCL[@]}"; do
+      [[ "${_svc}" == "${_ex// /}" ]] && { _skip=true; break; }
+    done
+    "${_skip}" || _FILTERED+=("${_svc}")
+  done
+  SERVICE_LIST=("${_FILTERED[@]}")
+  debug "Service list after exclusions: ${SERVICE_LIST[*]}"
+fi
+
 # ---------------------------------------------------------------------------
 # Cross-account role assumption
 # ---------------------------------------------------------------------------
@@ -113,7 +164,7 @@ assume_role() {
   local creds
   creds=$(aws sts assume-role \
     --role-arn "${arn}" \
-    --role-session-name "aws-tf-reverse-$$" \
+    --role-session-name "terraclaim-$$" \
     --query 'Credentials' \
     --output json) || die "Failed to assume role ${arn}"
   export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
@@ -1222,6 +1273,505 @@ export_opensearch() {
 }
 
 # ---------------------------------------------------------------------------
+# Tier 1 & 2 exporters
+# ---------------------------------------------------------------------------
+
+export_kinesis() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [kinesis] listing streams and delivery streams..."
+
+  # Data Streams
+  while read -r stream_name; do
+    [[ -z "${stream_name}" ]] && continue
+    local slug; slug=$(slugify "${stream_name}")
+    imports+=("aws_kinesis_stream.${slug}" "${stream_name}")
+    types+=("aws_kinesis_stream.${slug}")
+  done < <(aws kinesis list-streams \
+    --region "${region}" \
+    --query 'StreamNames[]' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Firehose delivery streams
+  while read -r ds_name; do
+    [[ -z "${ds_name}" ]] && continue
+    local slug; slug=$(slugify "${ds_name}")
+    imports+=("aws_kinesis_firehose_delivery_stream.${slug}" "${ds_name}")
+    types+=("aws_kinesis_firehose_delivery_stream.${slug}")
+  done < <(aws firehose list-delivery-streams \
+    --region "${region}" \
+    --query 'DeliveryStreamNames[]' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [kinesis] no resources found"; return; }
+  log "  [kinesis] found $((${#imports[@]}/2)) Kinesis resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "kinesis"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_cognito() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [cognito] listing user pools and identity pools..."
+
+  # User pools
+  while IFS=$'\t' read -r pool_id pool_name; do
+    [[ -z "${pool_id}" ]] && continue
+    local slug; slug=$(slugify "${pool_name:-${pool_id}}")
+    imports+=("aws_cognito_user_pool.${slug}" "${pool_id}")
+    types+=("aws_cognito_user_pool.${slug}")
+
+    # User pool clients
+    while IFS=$'\t' read -r client_id client_name; do
+      [[ -z "${client_id}" ]] && continue
+      local csluq; csluq=$(slugify "${client_name:-${client_id}}")
+      imports+=("aws_cognito_user_pool_client.${csluq}" "${pool_id}/${client_id}")
+      types+=("aws_cognito_user_pool_client.${csluq}")
+    done < <(aws cognito-idp list-user-pool-clients \
+      --user-pool-id "${pool_id}" \
+      --region "${region}" \
+      --query 'UserPoolClients[].[ClientId, ClientName]' \
+      --output text 2>/dev/null || true)
+  done < <(aws cognito-idp list-user-pools \
+    --max-results 60 \
+    --region "${region}" \
+    --query 'UserPools[].[Id, Name]' \
+    --output text 2>/dev/null || true)
+
+  # Identity pools
+  while IFS=$'\t' read -r identity_pool_id identity_pool_name; do
+    [[ -z "${identity_pool_id}" ]] && continue
+    local slug; slug=$(slugify "${identity_pool_name:-${identity_pool_id}}")
+    imports+=("aws_cognito_identity_pool.${slug}" "${identity_pool_id}")
+    types+=("aws_cognito_identity_pool.${slug}")
+  done < <(aws cognito-identity list-identity-pools \
+    --max-results 60 \
+    --region "${region}" \
+    --query 'IdentityPools[].[IdentityPoolId, IdentityPoolName]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [cognito] no resources found"; return; }
+  log "  [cognito] found $((${#imports[@]}/2)) Cognito resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "cognito"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_cloudtrail() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [cloudtrail] listing trails..."
+  while IFS=$'\t' read -r trail_arn trail_name home_region; do
+    [[ -z "${trail_arn}" ]] && continue
+    # Only import trails whose home region matches to avoid duplicates
+    [[ "${home_region}" != "${region}" ]] && continue
+    local slug; slug=$(slugify "${trail_name}")
+    imports+=("aws_cloudtrail.${slug}" "${trail_name}")
+    types+=("aws_cloudtrail.${slug}")
+  done < <(aws cloudtrail describe-trails \
+    --region "${region}" \
+    --include-shadow-trails false \
+    --query 'trailList[].[TrailARN, Name, HomeRegion]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [cloudtrail] no trails found"; return; }
+  log "  [cloudtrail] found $((${#imports[@]}/2)) trails"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "cloudtrail"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_guardduty() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [guardduty] listing detectors..."
+  while read -r detector_id; do
+    [[ -z "${detector_id}" ]] && continue
+    local slug; slug=$(slugify "${detector_id}")
+    imports+=("aws_guardduty_detector.${slug}" "${detector_id}")
+    types+=("aws_guardduty_detector.${slug}")
+
+    # IP sets
+    while read -r ipset_id; do
+      [[ -z "${ipset_id}" ]] && continue
+      local is_slug; is_slug=$(slugify "${detector_id}_${ipset_id}")
+      imports+=("aws_guardduty_ipset.${is_slug}" "${detector_id}:${ipset_id}")
+      types+=("aws_guardduty_ipset.${is_slug}")
+    done < <(aws guardduty list-ip-sets \
+      --detector-id "${detector_id}" \
+      --region "${region}" \
+      --query 'IpSetIds[]' \
+      --output text 2>/dev/null | tr '\t' '\n' || true)
+
+    # Threat intel sets
+    while read -r tis_id; do
+      [[ -z "${tis_id}" ]] && continue
+      local ts_slug; ts_slug=$(slugify "${detector_id}_${tis_id}")
+      imports+=("aws_guardduty_threatintelset.${ts_slug}" "${detector_id}:${tis_id}")
+      types+=("aws_guardduty_threatintelset.${ts_slug}")
+    done < <(aws guardduty list-threat-intel-sets \
+      --detector-id "${detector_id}" \
+      --region "${region}" \
+      --query 'ThreatIntelSetIds[]' \
+      --output text 2>/dev/null | tr '\t' '\n' || true)
+  done < <(aws guardduty list-detectors \
+    --region "${region}" \
+    --query 'DetectorIds[]' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [guardduty] no detectors found"; return; }
+  log "  [guardduty] found $((${#imports[@]}/2)) GuardDuty resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "guardduty"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_backup() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [backup] listing vaults and plans..."
+
+  # Backup vaults
+  while read -r vault_name; do
+    [[ -z "${vault_name}" ]] && continue
+    local slug; slug=$(slugify "${vault_name}")
+    imports+=("aws_backup_vault.${slug}" "${vault_name}")
+    types+=("aws_backup_vault.${slug}")
+  done < <(aws backup list-backup-vaults \
+    --region "${region}" \
+    --query 'BackupVaultList[].BackupVaultName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Backup plans
+  while IFS=$'\t' read -r plan_id plan_name; do
+    [[ -z "${plan_id}" ]] && continue
+    local slug; slug=$(slugify "${plan_name:-${plan_id}}")
+    imports+=("aws_backup_plan.${slug}" "${plan_id}")
+    types+=("aws_backup_plan.${slug}")
+
+    # Backup selections for this plan
+    while IFS=$'\t' read -r sel_id sel_name; do
+      [[ -z "${sel_id}" ]] && continue
+      local ss_slug; ss_slug=$(slugify "${plan_id}_${sel_name:-${sel_id}}")
+      imports+=("aws_backup_selection.${ss_slug}" "${plan_id}|${sel_id}")
+      types+=("aws_backup_selection.${ss_slug}")
+    done < <(aws backup list-backup-selections \
+      --backup-plan-id "${plan_id}" \
+      --region "${region}" \
+      --query 'BackupSelectionsList[].[SelectionId, SelectionName]' \
+      --output text 2>/dev/null || true)
+  done < <(aws backup list-backup-plans \
+    --region "${region}" \
+    --query 'BackupPlansList[].[BackupPlanId, BackupPlanName]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [backup] no resources found"; return; }
+  log "  [backup] found $((${#imports[@]}/2)) Backup resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "backup"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_redshift() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [redshift] listing clusters and serverless namespaces..."
+
+  # Provisioned clusters
+  while read -r cluster_id; do
+    [[ -z "${cluster_id}" ]] && continue
+    local slug; slug=$(slugify "${cluster_id}")
+    imports+=("aws_redshift_cluster.${slug}" "${cluster_id}")
+    types+=("aws_redshift_cluster.${slug}")
+  done < <(aws redshift describe-clusters \
+    --region "${region}" \
+    --query 'Clusters[].ClusterIdentifier' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Serverless namespaces
+  while read -r ns_name; do
+    [[ -z "${ns_name}" ]] && continue
+    local slug; slug=$(slugify "${ns_name}")
+    imports+=("aws_redshiftserverless_namespace.${slug}" "${ns_name}")
+    types+=("aws_redshiftserverless_namespace.${slug}")
+  done < <(aws redshift-serverless list-namespaces \
+    --region "${region}" \
+    --query 'namespaces[].namespaceName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Serverless workgroups
+  while read -r wg_name; do
+    [[ -z "${wg_name}" ]] && continue
+    local slug; slug=$(slugify "${wg_name}")
+    imports+=("aws_redshiftserverless_workgroup.${slug}" "${wg_name}")
+    types+=("aws_redshiftserverless_workgroup.${slug}")
+  done < <(aws redshift-serverless list-workgroups \
+    --region "${region}" \
+    --query 'workgroups[].workgroupName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [redshift] no resources found"; return; }
+  log "  [redshift] found $((${#imports[@]}/2)) Redshift resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "redshift"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_glue() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [glue] listing jobs, crawlers, and databases..."
+
+  # Jobs
+  while read -r job_name; do
+    [[ -z "${job_name}" ]] && continue
+    local slug; slug=$(slugify "${job_name}")
+    imports+=("aws_glue_job.${slug}" "${job_name}")
+    types+=("aws_glue_job.${slug}")
+  done < <(aws glue list-jobs \
+    --region "${region}" \
+    --query 'JobNames[]' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Crawlers
+  while read -r crawler_name; do
+    [[ -z "${crawler_name}" ]] && continue
+    local slug; slug=$(slugify "${crawler_name}")
+    imports+=("aws_glue_crawler.${slug}" "${crawler_name}")
+    types+=("aws_glue_crawler.${slug}")
+  done < <(aws glue list-crawlers \
+    --region "${region}" \
+    --query 'CrawlerNames[]' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Databases
+  while read -r db_name; do
+    [[ -z "${db_name}" ]] && continue
+    local slug; slug=$(slugify "${db_name}")
+    imports+=("aws_glue_catalog_database.${slug}" "${account}:${db_name}")
+    types+=("aws_glue_catalog_database.${slug}")
+  done < <(aws glue get-databases \
+    --region "${region}" \
+    --query 'DatabaseList[].Name' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Connections
+  while read -r conn_name; do
+    [[ -z "${conn_name}" ]] && continue
+    local slug; slug=$(slugify "${conn_name}")
+    imports+=("aws_glue_connection.${slug}" "${account}:${conn_name}")
+    types+=("aws_glue_connection.${slug}")
+  done < <(aws glue list-connections \
+    --region "${region}" \
+    --query 'ConnectionList[].Name' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [glue] no resources found"; return; }
+  log "  [glue] found $((${#imports[@]}/2)) Glue resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "glue"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_ses() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [ses] listing identities and configuration sets..."
+
+  # Email/domain identities (SESv2)
+  while IFS=$'\t' read -r identity_name identity_type; do
+    [[ -z "${identity_name}" ]] && continue
+    local slug; slug=$(slugify "${identity_name}")
+    imports+=("aws_sesv2_email_identity.${slug}" "${identity_name}")
+    types+=("aws_sesv2_email_identity.${slug}")
+  done < <(aws sesv2 list-email-identities \
+    --region "${region}" \
+    --query 'EmailIdentities[].[IdentityName, IdentityType]' \
+    --output text 2>/dev/null || true)
+
+  # Configuration sets (SESv2)
+  while read -r cs_name; do
+    [[ -z "${cs_name}" ]] && continue
+    local slug; slug=$(slugify "${cs_name}")
+    imports+=("aws_sesv2_configuration_set.${slug}" "${cs_name}")
+    types+=("aws_sesv2_configuration_set.${slug}")
+  done < <(aws sesv2 list-configuration-sets \
+    --region "${region}" \
+    --query 'ConfigurationSets[]' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [ses] no resources found"; return; }
+  log "  [ses] found $((${#imports[@]}/2)) SES resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "ses"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_codepipeline() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [codepipeline] listing pipelines..."
+  while read -r pipeline_name; do
+    [[ -z "${pipeline_name}" ]] && continue
+    local slug; slug=$(slugify "${pipeline_name}")
+    imports+=("aws_codepipeline.${slug}" "${pipeline_name}")
+    types+=("aws_codepipeline.${slug}")
+  done < <(aws codepipeline list-pipelines \
+    --region "${region}" \
+    --query 'pipelines[].name' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [codepipeline] no pipelines found"; return; }
+  log "  [codepipeline] found $((${#imports[@]}/2)) pipelines"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "codepipeline"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_codebuild() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [codebuild] listing projects..."
+  while read -r project_name; do
+    [[ -z "${project_name}" ]] && continue
+    local slug; slug=$(slugify "${project_name}")
+    imports+=("aws_codebuild_project.${slug}" "${project_name}")
+    types+=("aws_codebuild_project.${slug}")
+  done < <(aws codebuild list-projects \
+    --region "${region}" \
+    --query 'projects[]' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [codebuild] no projects found"; return; }
+  log "  [codebuild] found $((${#imports[@]}/2)) CodeBuild projects"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "codebuild"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_documentdb() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [documentdb] listing clusters and instances..."
+
+  # Clusters
+  while read -r cluster_id; do
+    [[ -z "${cluster_id}" ]] && continue
+    local slug; slug=$(slugify "${cluster_id}")
+    imports+=("aws_docdb_cluster.${slug}" "${cluster_id}")
+    types+=("aws_docdb_cluster.${slug}")
+  done < <(aws docdb describe-db-clusters \
+    --region "${region}" \
+    --filters "Name=engine,Values=docdb" \
+    --query 'DBClusters[].DBClusterIdentifier' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Instances
+  while read -r instance_id; do
+    [[ -z "${instance_id}" ]] && continue
+    local slug; slug=$(slugify "${instance_id}")
+    imports+=("aws_docdb_cluster_instance.${slug}" "${instance_id}")
+    types+=("aws_docdb_cluster_instance.${slug}")
+  done < <(aws docdb describe-db-instances \
+    --region "${region}" \
+    --filters "Name=engine,Values=docdb" \
+    --query 'DBInstances[].DBInstanceIdentifier' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [documentdb] no resources found"; return; }
+  log "  [documentdb] found $((${#imports[@]}/2)) DocumentDB resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "documentdb"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_fsx() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [fsx] listing file systems..."
+  while IFS=$'\t' read -r fs_id fs_type; do
+    [[ -z "${fs_id}" ]] && continue
+    local slug; slug=$(slugify "${fs_id}")
+    case "${fs_type}" in
+      WINDOWS)   imports+=("aws_fsx_windows_file_system.${slug}"  "${fs_id}"); types+=("aws_fsx_windows_file_system.${slug}") ;;
+      LUSTRE)    imports+=("aws_fsx_lustre_file_system.${slug}"   "${fs_id}"); types+=("aws_fsx_lustre_file_system.${slug}") ;;
+      ONTAP)     imports+=("aws_fsx_ontap_file_system.${slug}"    "${fs_id}"); types+=("aws_fsx_ontap_file_system.${slug}") ;;
+      OPENZFS)   imports+=("aws_fsx_openzfs_file_system.${slug}"  "${fs_id}"); types+=("aws_fsx_openzfs_file_system.${slug}") ;;
+      *)         imports+=("aws_fsx_lustre_file_system.${slug}"   "${fs_id}"); types+=("aws_fsx_lustre_file_system.${slug}") ;;
+    esac
+  done < <(aws fsx describe-file-systems \
+    --region "${region}" \
+    --query 'FileSystems[].[FileSystemId, FileSystemType]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [fsx] no file systems found"; return; }
+  log "  [fsx] found $((${#imports[@]}/2)) FSx file systems"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "fsx"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_transfer() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [transfer] listing Transfer Family servers..."
+  while IFS=$'\t' read -r server_id domain; do
+    [[ -z "${server_id}" ]] && continue
+    local slug; slug=$(slugify "${server_id}")
+    imports+=("aws_transfer_server.${slug}" "${server_id}")
+    types+=("aws_transfer_server.${slug}")
+
+    # Users for this server
+    while read -r username; do
+      [[ -z "${username}" ]] && continue
+      local u_slug; u_slug=$(slugify "${server_id}_${username}")
+      imports+=("aws_transfer_user.${u_slug}" "${server_id}/${username}")
+      types+=("aws_transfer_user.${u_slug}")
+    done < <(aws transfer list-users \
+      --server-id "${server_id}" \
+      --region "${region}" \
+      --query 'Users[].UserName' \
+      --output text 2>/dev/null | tr '\t' '\n' || true)
+  done < <(aws transfer list-servers \
+    --region "${region}" \
+    --query 'Servers[].[ServerId, Domain]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [transfer] no servers found"; return; }
+  log "  [transfer] found $((${#imports[@]}/2)) Transfer Family resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "transfer"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+# ---------------------------------------------------------------------------
 # Service dispatcher
 # ---------------------------------------------------------------------------
 dispatch_service() {
@@ -1260,6 +1810,19 @@ dispatch_service() {
     config)         export_config         "${account}" "${region}" "${path}" ;;
     efs)            export_efs            "${account}" "${region}" "${path}" ;;
     opensearch)     export_opensearch     "${account}" "${region}" "${path}" ;;
+    kinesis)        export_kinesis        "${account}" "${region}" "${path}" ;;
+    cognito)        export_cognito        "${account}" "${region}" "${path}" ;;
+    cloudtrail)     export_cloudtrail     "${account}" "${region}" "${path}" ;;
+    guardduty)      export_guardduty      "${account}" "${region}" "${path}" ;;
+    backup)         export_backup         "${account}" "${region}" "${path}" ;;
+    redshift)       export_redshift       "${account}" "${region}" "${path}" ;;
+    glue)           export_glue           "${account}" "${region}" "${path}" ;;
+    ses)            export_ses            "${account}" "${region}" "${path}" ;;
+    codepipeline)   export_codepipeline   "${account}" "${region}" "${path}" ;;
+    codebuild)      export_codebuild      "${account}" "${region}" "${path}" ;;
+    documentdb)     export_documentdb     "${account}" "${region}" "${path}" ;;
+    fsx)            export_fsx            "${account}" "${region}" "${path}" ;;
+    transfer)       export_transfer       "${account}" "${region}" "${path}" ;;
     *) log "  [WARN] Unknown service '${svc}' — skipping" ;;
   esac
 }
@@ -1273,7 +1836,7 @@ SUMMARY_FILE="${OUTPUT_DIR}/summary.txt"
 if ! "${DRY_RUN}"; then
   mkdir -p "${OUTPUT_DIR}"
   {
-    echo "aws-tf-reverse summary"
+    echo "terraclaim summary"
     echo "Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     echo "Accounts:  ${ACCOUNTS}"
     echo "Regions:   ${REGIONS}"
@@ -1301,8 +1864,18 @@ for account in "${ACCOUNT_LIST[@]}"; do
     for service in "${SERVICE_LIST[@]}"; do
       service="${service// /}"
       [[ -z "${service}" ]] && continue
-      dispatch_service "${service}" "${account}" "${region}" "${base_path}"
+      if [[ "${PARALLEL}" -gt 1 ]]; then
+        # Throttle to at most PARALLEL concurrent jobs
+        while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${PARALLEL}" ]]; do
+          wait -n 2>/dev/null || true
+        done
+        dispatch_service "${service}" "${account}" "${region}" "${base_path}" &
+      else
+        dispatch_service "${service}" "${account}" "${region}" "${base_path}"
+      fi
     done
+    # Wait for all background service scans in this region to complete
+    [[ "${PARALLEL}" -gt 1 ]] && wait
   done
 
   if [[ -n "${ROLE_NAME}" ]]; then

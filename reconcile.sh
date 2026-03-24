@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reconcile.sh — Compare an aws-tf-reverse output directory against AWS Resource Explorer.
+# reconcile.sh — Compare a terraclaim output directory against AWS Resource Explorer.
 #
 # Queries Resource Explorer for all resources in the account/region and checks
 # how many are already covered by an import block in the output directory.
@@ -12,7 +12,7 @@
 #   ./reconcile.sh [OPTIONS]
 #
 # Options:
-#   --output       "./tf-output"   Output directory from aws-tf-reverse.sh
+#   --output       "./tf-output"   Output directory from terraclaim.sh
 #   --index-region "us-east-1"    Region containing the Resource Explorer aggregator index
 #   --accounts     "id1,id2"      Comma-separated account IDs (default: all in index)
 #   --dry-run                     Show what would be checked; do not query Resource Explorer

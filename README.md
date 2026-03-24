@@ -4,6 +4,10 @@
 
 # Terraclaim
 
+[![Release](https://img.shields.io/github/v/release/andrewbakercloudscale/terraclaim)](https://github.com/andrewbakercloudscale/terraclaim/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![ShellCheck](https://github.com/andrewbakercloudscale/terraclaim/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/andrewbakercloudscale/terraclaim/actions/workflows/shellcheck.yml)
+
 Claim your AWS estate as Terraform — using scripts, not click-ops.
 
 `terraclaim` scans your AWS account(s) and generates ready-to-use Terraform

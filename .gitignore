@@ -6,3 +6,17 @@ tf-output/
 generated.tf
 *.zip
 .DS_Store
+
+# run.sh per-directory logs
+.run.log
+
+# Local / machine-specific scripts not part of the project
+deploy-wordpress.sh
+
+# Temp image variants
+terraclaim_*.jpeg
+terraclaim_small.*
+terraclaim_e_small.*
+
+# Claude Code tooling
+.claude-flow/

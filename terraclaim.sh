@@ -45,7 +45,7 @@ PARALLEL=5
 RESUME=false
 DRY_RUN=false
 DEBUG=false
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 # ---------------------------------------------------------------------------
 # Helpers

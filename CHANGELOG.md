@@ -23,7 +23,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - 13 new services: `kinesis`, `cognito`, `cloudtrail`, `guardduty`, `backup`, `redshift`,
   `glue`, `ses`, `codepipeline`, `codebuild`, `documentdb`, `fsx`, `transfer`.
 - `sync.sh` — deploys `index.html` to S3 + invalidates CloudFront for terraclaim.org.
-- `CLAUDE.md` — full project briefing for AI-assisted development.
 - `CONTRIBUTING.md` — contributing guide with service addition checklist.
 - `index.html` — terraclaim.org homepage (single-page, no framework).
 - `favicon.svg` — purple `tc` favicon.

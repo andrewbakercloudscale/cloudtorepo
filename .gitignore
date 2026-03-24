@@ -18,5 +18,6 @@ terraclaim_*.jpeg
 terraclaim_small.*
 terraclaim_e_small.*
 
-# Claude Code tooling
+# Local development tooling (not part of the project)
 .claude-flow/
+CLAUDE.md

@@ -29,7 +29,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 ACCOUNTS=""
 REGIONS="us-east-1"
-SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch"
+SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch"
 ROLE_NAME=""
 STATE_BUCKET=""
 STATE_REGION=""
@@ -843,6 +843,384 @@ export_cloudwatch() {
   write_resources_tf "${path}" "${types[@]}"
 }
 
+export_eventbridge() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [eventbridge] listing rules and event buses..."
+
+  # Custom event buses (skip the default bus — it's not importable)
+  while read -r bus_name; do
+    [[ -z "${bus_name}" ]] && continue
+    [[ "${bus_name}" == "default" ]] && continue
+    local slug; slug=$(slugify "${bus_name}")
+    imports+=("aws_cloudwatch_event_bus.${slug}" "${bus_name}")
+    types+=("aws_cloudwatch_event_bus.${slug}")
+  done < <(aws events list-event-buses \
+    --region "${region}" \
+    --query 'EventBuses[].Name' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Rules (on the default bus and any custom buses)
+  local all_buses=("default")
+  while read -r bus_name; do
+    [[ -z "${bus_name}" ]] && continue
+    [[ "${bus_name}" == "default" ]] && continue
+    all_buses+=("${bus_name}")
+  done < <(aws events list-event-buses \
+    --region "${region}" \
+    --query 'EventBuses[].Name' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  for bus in "${all_buses[@]}"; do
+    while read -r rule_name; do
+      [[ -z "${rule_name}" ]] && continue
+      local slug; slug=$(slugify "${bus}_${rule_name}")
+      local import_id="${rule_name}"
+      [[ "${bus}" != "default" ]] && import_id="${bus}/${rule_name}"
+      imports+=("aws_cloudwatch_event_rule.${slug}" "${import_id}")
+      types+=("aws_cloudwatch_event_rule.${slug}")
+    done < <(aws events list-rules \
+      --event-bus-name "${bus}" \
+      --region "${region}" \
+      --query 'Rules[].Name' \
+      --output text 2>/dev/null | tr '\t' '\n' || true)
+  done
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [eventbridge] no resources found"; return; }
+  log "  [eventbridge] found $((${#imports[@]}/2)) EventBridge resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "eventbridge"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_ecr() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [ecr] listing repositories..."
+  while read -r repo_name; do
+    [[ -z "${repo_name}" ]] && continue
+    local slug; slug=$(slugify "${repo_name}")
+    imports+=("aws_ecr_repository.${slug}" "${repo_name}")
+    types+=("aws_ecr_repository.${slug}")
+  done < <(aws ecr describe-repositories \
+    --region "${region}" \
+    --query 'repositories[].repositoryName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Lifecycle policies are separate resources
+  for i in $(seq 0 2 $((${#imports[@]}-2))); do
+    local repo_name="${imports[$((i+1))]}"
+    local slug; slug=$(slugify "${repo_name}")
+    local has_policy
+    has_policy=$(aws ecr get-lifecycle-policy \
+      --repository-name "${repo_name}" \
+      --region "${region}" \
+      --query 'repositoryName' \
+      --output text 2>/dev/null || true)
+    if [[ -n "${has_policy}" ]]; then
+      imports+=("aws_ecr_lifecycle_policy.${slug}" "${repo_name}")
+      types+=("aws_ecr_lifecycle_policy.${slug}")
+    fi
+  done
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [ecr] no repositories found"; return; }
+  log "  [ecr] found $((${#imports[@]}/2)) ECR resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "ecr"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_stepfunctions() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [stepfunctions] listing state machines..."
+  while IFS=$'\t' read -r sm_arn sm_name; do
+    [[ -z "${sm_arn}" ]] && continue
+    local slug; slug=$(slugify "${sm_name}")
+    imports+=("aws_sfn_state_machine.${slug}" "${sm_arn}")
+    types+=("aws_sfn_state_machine.${slug}")
+  done < <(aws stepfunctions list-state-machines \
+    --region "${region}" \
+    --query 'stateMachines[].[stateMachineArn, name]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [stepfunctions] no state machines found"; return; }
+  log "  [stepfunctions] found $((${#imports[@]}/2)) state machines"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "stepfunctions"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_wafv2() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [wafv2] listing Web ACLs and IP sets..."
+
+  for scope in REGIONAL CLOUDFRONT; do
+    # CloudFront scope must be queried from us-east-1
+    [[ "${scope}" == "CLOUDFRONT" ]] && [[ "${region}" != "us-east-1" ]] && continue
+
+    # Web ACLs
+    while IFS=$'\t' read -r acl_id acl_name; do
+      [[ -z "${acl_id}" ]] && continue
+      local slug; slug=$(slugify "${scope}_${acl_name}")
+      # Import ID format: name/id/scope
+      imports+=("aws_wafv2_web_acl.${slug}" "${acl_name}/${acl_id}/${scope}")
+      types+=("aws_wafv2_web_acl.${slug}")
+    done < <(aws wafv2 list-web-acls \
+      --scope "${scope}" \
+      --region "${region}" \
+      --query 'WebACLs[].[Id, Name]' \
+      --output text 2>/dev/null || true)
+
+    # IP sets
+    while IFS=$'\t' read -r ip_id ip_name; do
+      [[ -z "${ip_id}" ]] && continue
+      local slug; slug=$(slugify "${scope}_${ip_name}")
+      imports+=("aws_wafv2_ip_set.${slug}" "${ip_name}/${ip_id}/${scope}")
+      types+=("aws_wafv2_ip_set.${slug}")
+    done < <(aws wafv2 list-ip-sets \
+      --scope "${scope}" \
+      --region "${region}" \
+      --query 'IPSets[].[Id, Name]' \
+      --output text 2>/dev/null || true)
+
+    # Rule groups
+    while IFS=$'\t' read -r rg_id rg_name; do
+      [[ -z "${rg_id}" ]] && continue
+      local slug; slug=$(slugify "${scope}_${rg_name}")
+      imports+=("aws_wafv2_rule_group.${slug}" "${rg_name}/${rg_id}/${scope}")
+      types+=("aws_wafv2_rule_group.${slug}")
+    done < <(aws wafv2 list-rule-groups \
+      --scope "${scope}" \
+      --region "${region}" \
+      --query 'RuleGroups[].[Id, Name]' \
+      --output text 2>/dev/null || true)
+  done
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [wafv2] no resources found"; return; }
+  log "  [wafv2] found $((${#imports[@]}/2)) WAFv2 resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "wafv2"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_transitgateway() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [transitgateway] listing Transit Gateways..."
+
+  # Transit Gateways
+  while IFS=$'\t' read -r tgw_id name_tag; do
+    [[ -z "${tgw_id}" ]] && continue
+    local slug; slug=$(slugify "${name_tag:-${tgw_id}}")
+    imports+=("aws_ec2_transit_gateway.${slug}" "${tgw_id}")
+    types+=("aws_ec2_transit_gateway.${slug}")
+
+    # VPC attachments for this TGW
+    while IFS=$'\t' read -r att_id att_name; do
+      [[ -z "${att_id}" ]] && continue
+      local att_slug; att_slug=$(slugify "${att_name:-${att_id}}")
+      imports+=("aws_ec2_transit_gateway_vpc_attachment.${att_slug}" "${att_id}")
+      types+=("aws_ec2_transit_gateway_vpc_attachment.${att_slug}")
+    done < <(aws ec2 describe-transit-gateway-vpc-attachments \
+      --region "${region}" \
+      --filters "Name=transit-gateway-id,Values=${tgw_id}" "Name=state,Values=available" \
+      --query 'TransitGatewayVpcAttachments[].[TransitGatewayAttachmentId, Tags[?Key==`Name`].Value|[0]]' \
+      --output text 2>/dev/null || true)
+
+    # Route tables
+    while IFS=$'\t' read -r rt_id rt_name; do
+      [[ -z "${rt_id}" ]] && continue
+      local rt_slug; rt_slug=$(slugify "${rt_name:-${rt_id}}")
+      imports+=("aws_ec2_transit_gateway_route_table.${rt_slug}" "${rt_id}")
+      types+=("aws_ec2_transit_gateway_route_table.${rt_slug}")
+    done < <(aws ec2 describe-transit-gateway-route-tables \
+      --region "${region}" \
+      --filters "Name=transit-gateway-id,Values=${tgw_id}" \
+      --query 'TransitGatewayRouteTables[].[TransitGatewayRouteTableId, Tags[?Key==`Name`].Value|[0]]' \
+      --output text 2>/dev/null || true)
+  done < <(aws ec2 describe-transit-gateways \
+    --region "${region}" \
+    --filters "Name=state,Values=available" \
+    --query 'TransitGateways[].[TransitGatewayId, Tags[?Key==`Name`].Value|[0]]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [transitgateway] no resources found"; return; }
+  log "  [transitgateway] found $((${#imports[@]}/2)) Transit Gateway resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "transitgateway"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_vpcendpoints() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [vpcendpoints] listing VPC endpoints..."
+  while IFS=$'\t' read -r ep_id service_name; do
+    [[ -z "${ep_id}" ]] && continue
+    # Use service short name for slug (e.g. com.amazonaws.us-east-1.s3 -> s3)
+    local short; short=$(echo "${service_name}" | awk -F. '{print $NF}')
+    local slug; slug=$(slugify "${ep_id}_${short}")
+    imports+=("aws_vpc_endpoint.${slug}" "${ep_id}")
+    types+=("aws_vpc_endpoint.${slug}")
+  done < <(aws ec2 describe-vpc-endpoints \
+    --region "${region}" \
+    --filters "Name=vpc-endpoint-state,Values=available,pending" \
+    --query 'VpcEndpoints[].[VpcEndpointId, ServiceName]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [vpcendpoints] no endpoints found"; return; }
+  log "  [vpcendpoints] found $((${#imports[@]}/2)) VPC endpoints"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "vpcendpoints"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_config() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [config] listing Config rules and recorder..."
+
+  # Configuration recorder
+  while read -r recorder_name; do
+    [[ -z "${recorder_name}" ]] && continue
+    local slug; slug=$(slugify "${recorder_name}")
+    imports+=("aws_config_configuration_recorder.${slug}" "${recorder_name}")
+    types+=("aws_config_configuration_recorder.${slug}")
+    # Recorder status is a separate resource, same import ID
+    imports+=("aws_config_configuration_recorder_status.${slug}" "${recorder_name}")
+    types+=("aws_config_configuration_recorder_status.${slug}")
+  done < <(aws configservice describe-configuration-recorders \
+    --region "${region}" \
+    --query 'ConfigurationRecorders[].name' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Delivery channel
+  while read -r channel_name; do
+    [[ -z "${channel_name}" ]] && continue
+    local slug; slug=$(slugify "${channel_name}")
+    imports+=("aws_config_delivery_channel.${slug}" "${channel_name}")
+    types+=("aws_config_delivery_channel.${slug}")
+  done < <(aws configservice describe-delivery-channels \
+    --region "${region}" \
+    --query 'DeliveryChannels[].name' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Config rules
+  while read -r rule_name; do
+    [[ -z "${rule_name}" ]] && continue
+    local slug; slug=$(slugify "${rule_name}")
+    imports+=("aws_config_config_rule.${slug}" "${rule_name}")
+    types+=("aws_config_config_rule.${slug}")
+  done < <(aws configservice describe-config-rules \
+    --region "${region}" \
+    --query 'ConfigRules[].ConfigRuleName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Conformance packs
+  while read -r pack_name; do
+    [[ -z "${pack_name}" ]] && continue
+    local slug; slug=$(slugify "${pack_name}")
+    imports+=("aws_config_conformance_pack.${slug}" "${pack_name}")
+    types+=("aws_config_conformance_pack.${slug}")
+  done < <(aws configservice describe-conformance-packs \
+    --region "${region}" \
+    --query 'ConformancePackDetails[].ConformancePackName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [config] no resources found"; return; }
+  log "  [config] found $((${#imports[@]}/2)) Config resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "config"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_efs() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [efs] listing file systems..."
+  while IFS=$'\t' read -r fs_id name_tag; do
+    [[ -z "${fs_id}" ]] && continue
+    local slug; slug=$(slugify "${name_tag:-${fs_id}}")
+    imports+=("aws_efs_file_system.${slug}" "${fs_id}")
+    types+=("aws_efs_file_system.${slug}")
+
+    # Mount targets for this file system
+    while read -r mt_id; do
+      [[ -z "${mt_id}" ]] && continue
+      local mt_slug; mt_slug=$(slugify "${mt_id}")
+      imports+=("aws_efs_mount_target.${mt_slug}" "${mt_id}")
+      types+=("aws_efs_mount_target.${mt_slug}")
+    done < <(aws efs describe-mount-targets \
+      --file-system-id "${fs_id}" \
+      --region "${region}" \
+      --query 'MountTargets[].MountTargetId' \
+      --output text 2>/dev/null | tr '\t' '\n' || true)
+
+    # Access points
+    while IFS=$'\t' read -r ap_id ap_name; do
+      [[ -z "${ap_id}" ]] && continue
+      local ap_slug; ap_slug=$(slugify "${ap_name:-${ap_id}}")
+      imports+=("aws_efs_access_point.${ap_slug}" "${ap_id}")
+      types+=("aws_efs_access_point.${ap_slug}")
+    done < <(aws efs describe-access-points \
+      --file-system-id "${fs_id}" \
+      --region "${region}" \
+      --query 'AccessPoints[].[AccessPointId, Tags[?Key==`Name`].Value|[0]]' \
+      --output text 2>/dev/null || true)
+  done < <(aws efs describe-file-systems \
+    --region "${region}" \
+    --query 'FileSystems[].[FileSystemId, Tags[?Key==`Name`].Value|[0]]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [efs] no file systems found"; return; }
+  log "  [efs] found $((${#imports[@]}/2)) EFS resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "efs"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_opensearch() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [opensearch] listing domains..."
+  while read -r domain_name; do
+    [[ -z "${domain_name}" ]] && continue
+    local slug; slug=$(slugify "${domain_name}")
+    # Import ID format: account-id/domain-name
+    imports+=("aws_opensearch_domain.${slug}" "${account}/${domain_name}")
+    types+=("aws_opensearch_domain.${slug}")
+  done < <(aws opensearch list-domain-names \
+    --region "${region}" \
+    --query 'DomainNames[].DomainName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [opensearch] no domains found"; return; }
+  log "  [opensearch] found $((${#imports[@]}/2)) OpenSearch domains"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "opensearch"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
 # ---------------------------------------------------------------------------
 # Service dispatcher
 # ---------------------------------------------------------------------------
@@ -873,6 +1251,15 @@ dispatch_service() {
     ssm)            export_ssm            "${account}" "${region}" "${path}" ;;
     apigateway)     export_apigateway     "${account}" "${region}" "${path}" ;;
     cloudwatch)     export_cloudwatch     "${account}" "${region}" "${path}" ;;
+    eventbridge)    export_eventbridge    "${account}" "${region}" "${path}" ;;
+    ecr)            export_ecr            "${account}" "${region}" "${path}" ;;
+    stepfunctions)  export_stepfunctions  "${account}" "${region}" "${path}" ;;
+    wafv2)          export_wafv2          "${account}" "${region}" "${path}" ;;
+    transitgateway) export_transitgateway "${account}" "${region}" "${path}" ;;
+    vpcendpoints)   export_vpcendpoints   "${account}" "${region}" "${path}" ;;
+    config)         export_config         "${account}" "${region}" "${path}" ;;
+    efs)            export_efs            "${account}" "${region}" "${path}" ;;
+    opensearch)     export_opensearch     "${account}" "${region}" "${path}" ;;
     *) log "  [WARN] Unknown service '${svc}' — skipping" ;;
   esac
 }

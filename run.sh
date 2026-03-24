@@ -66,6 +66,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+[[ "${PARALLEL}" =~ ^[1-9][0-9]*$ ]] || die "--parallel must be a positive integer (got: '${PARALLEL}')"
+
+# ---------------------------------------------------------------------------
 # Dependency checks
 # ---------------------------------------------------------------------------
 command -v terraform &>/dev/null || die "Required command not found: terraform"
@@ -190,6 +195,7 @@ process_dir() {
 # Run — parallel or sequential
 # ---------------------------------------------------------------------------
 _RESULTS_DIR=$(mktemp -d)
+trap 'rm -rf "${_RESULTS_DIR}" 2>/dev/null' EXIT INT TERM
 
 run_dir() {
   local dir="$1"
@@ -238,8 +244,6 @@ for dir in "${DIRS[@]}"; do
       ;;
   esac
 done
-
-rm -rf "${_RESULTS_DIR}"
 
 # ---------------------------------------------------------------------------
 # Summary

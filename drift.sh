@@ -84,6 +84,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+[[ "${PARALLEL}" =~ ^[1-9][0-9]*$ ]] || die "--parallel must be a positive integer (got: '${PARALLEL}')"
+
+# ---------------------------------------------------------------------------
 # Dependency checks
 # ---------------------------------------------------------------------------
 for cmd in aws jq; do
@@ -132,10 +137,24 @@ aws() {
       delay=$(( delay * 2 ))
       attempt=$(( attempt + 1 ))
     else
+      # Surface auth/credential errors via a temp file so they are never
+      # silently swallowed by 2>/dev/null at call sites
+      if echo "${out}" | grep -qiE 'AccessDeniedException|UnauthorizedOperation|AuthFailure|ExpiredTokenException|InvalidClientTokenId|NoCredentialProviders|AccessDenied'; then
+        echo "[WARN] AWS auth/permission error — aws ${*:1:2}: ${out}" >> "${_AWS_WARN_FILE:-/dev/stderr}"
+      fi
       printf '%s\n' "${out}" >&2
       return $ec
     fi
   done
+}
+
+# Print any queued auth warnings and clear the file
+flush_aws_warnings() {
+  [[ -z "${_AWS_WARN_FILE:-}" || ! -s "${_AWS_WARN_FILE}" ]] && return
+  while IFS= read -r _warn_line; do
+    err "${_warn_line}"
+  done < "${_AWS_WARN_FILE}"
+  > "${_AWS_WARN_FILE}"
 }
 
 # ---------------------------------------------------------------------------
@@ -154,6 +173,7 @@ load_tag_filter() {
     local _val="${_pair#*=}"
     filter_args+=("Key=${_key// /},Values=${_val// /}")
   done
+  log "  [tags] loading tag filter for region ${region}..."
   local _arn
   while IFS= read -r _arn; do
     [[ -z "${_arn}" ]] && continue
@@ -165,6 +185,12 @@ load_tag_filter() {
     --tag-filters "${filter_args[@]}" \
     --query 'ResourceTagMappingList[].ResourceARN' \
     --output text 2>/dev/null || true)
+  debug "  [tags] ${#TAG_IDS[@]} tagged resource IDs loaded for ${region}"
+  if [[ ${#TAG_IDS[@]} -eq 0 ]]; then
+    err "[WARN] --tags filter returned 0 matching resources in ${region}. Verify:"
+    err "  - IAM permission resourcegroupstaggingapi:GetResources is granted"
+    err "  - Tags are specified exactly as they appear in AWS: ${TAGS}"
+  fi
 }
 
 tag_match() {
@@ -190,6 +216,8 @@ assume_role() {
   AWS_ACCESS_KEY_ID=$(echo "${creds}"     | jq -r '.AccessKeyId')
   AWS_SECRET_ACCESS_KEY=$(echo "${creds}" | jq -r '.SecretAccessKey')
   AWS_SESSION_TOKEN=$(echo "${creds}"     | jq -r '.SessionToken')
+  [[ "${AWS_ACCESS_KEY_ID}" == "null" || -z "${AWS_ACCESS_KEY_ID}" ]] && \
+    die "assume_role: invalid credentials returned for ${arn} — verify the role exists and its trust policy allows this principal"
 }
 
 restore_credentials() {
@@ -268,7 +296,7 @@ apply_remove_stale() {
   [[ ${#stale_addrs[@]} -eq 0 ]] && return
   [[ ! -f "${imports_file}" ]] && return
 
-  local tmp; tmp=$(mktemp)
+  local tmp; tmp=$(mktemp) || { err "Failed to create temp file for ${imports_file} — skipping"; return 1; }
   local in_block=false
   local skip_block=false
   local block_lines=()
@@ -321,7 +349,7 @@ apply_remove_stale() {
     echo "${line}" >> "${tmp}"
   done < "${imports_file}"
 
-  mv "${tmp}" "${imports_file}"
+  mv "${tmp}" "${imports_file}" || { err "Failed to update ${imports_file} — original preserved at ${tmp}"; return 1; }
   debug "    commented out ${#stale_addrs[@]} stale blocks in ${imports_file}"
 }
 
@@ -1330,6 +1358,20 @@ scan_service() {
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
+# _scan_svc_to_tmp defined here (not inside the region loop) so it is only
+# declared once regardless of how many regions are swept.
+_scan_svc_to_tmp() {
+  local _svc="$1" _account="$2" _region="$3" _tmp="$4"
+  LIVE_PAIRS=()
+  scan_service "${_svc}" "${_account}" "${_region}"
+  printf '%s\n' "${LIVE_PAIRS[@]}" > "${_tmp}"
+}
+
+# Temp file receives auth/permission warnings from the aws() wrapper even
+# when call sites use 2>/dev/null; flushed after each region sweep.
+_AWS_WARN_FILE=$(mktemp)
+trap 'rm -f "${_AWS_WARN_FILE}" 2>/dev/null' EXIT INT TERM
+
 TOTAL_NEW=0
 TOTAL_REMOVED=0
 TOTAL_UNCHANGED=0
@@ -1370,12 +1412,6 @@ for account in "${ACCOUNT_LIST[@]}"; do
     # Phase 1 — Parallel scan: each service writes LIVE_PAIRS to a temp file
     # -----------------------------------------------------------------------
     declare -A _SVC_TMPFILES=()
-    _scan_svc_to_tmp() {
-      local _svc="$1" _account="$2" _region="$3" _tmp="$4"
-      LIVE_PAIRS=()
-      scan_service "${_svc}" "${_account}" "${_region}"
-      printf '%s\n' "${LIVE_PAIRS[@]}" > "${_tmp}"
-    }
 
     for service in "${SERVICE_LIST[@]}"; do
       service="${service// /}"
@@ -1387,9 +1423,13 @@ for account in "${ACCOUNT_LIST[@]}"; do
         while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${PARALLEL}" ]]; do
           wait -n 2>/dev/null || true
         done
-        _scan_svc_to_tmp "${service}" "${account}" "${region}" "${_tmp}" &
+        (
+          _scan_svc_to_tmp "${service}" "${account}" "${region}" "${_tmp}" \
+            || err "[FAIL] ${service} scan failed in ${region}"
+        ) &
       else
-        _scan_svc_to_tmp "${service}" "${account}" "${region}" "${_tmp}"
+        _scan_svc_to_tmp "${service}" "${account}" "${region}" "${_tmp}" \
+          || err "[FAIL] ${service} scan failed in ${region}"
       fi
     done
     [[ "${PARALLEL}" -gt 1 ]] && wait
@@ -1498,6 +1538,8 @@ for account in "${ACCOUNT_LIST[@]}"; do
       unset LIVE_IDS LIVE_ADDRS
     done
     unset _SVC_TMPFILES
+    # Surface any auth/permission errors collected during this region sweep
+    flush_aws_warnings
   done
 
   if [[ -n "${ROLE_NAME}" ]]; then

@@ -90,6 +90,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+[[ "${PARALLEL}" =~ ^[1-9][0-9]*$ ]] || die "--parallel must be a positive integer (got: '${PARALLEL}')"
+
+# ---------------------------------------------------------------------------
 # Dependency checks
 # ---------------------------------------------------------------------------
 for cmd in aws terraform jq; do
@@ -123,10 +128,24 @@ aws() {
       delay=$(( delay * 2 ))
       attempt=$(( attempt + 1 ))
     else
+      # Surface auth/credential errors via a temp file so they are never
+      # silently swallowed by 2>/dev/null at call sites
+      if echo "${out}" | grep -qiE 'AccessDeniedException|UnauthorizedOperation|AuthFailure|ExpiredTokenException|InvalidClientTokenId|NoCredentialProviders|AccessDenied'; then
+        echo "[WARN] AWS auth/permission error — aws ${*:1:2}: ${out}" >> "${_AWS_WARN_FILE:-/dev/stderr}"
+      fi
       printf '%s\n' "${out}" >&2
       return $ec
     fi
   done
+}
+
+# Print any queued auth warnings and clear the file
+flush_aws_warnings() {
+  [[ -z "${_AWS_WARN_FILE:-}" || ! -s "${_AWS_WARN_FILE}" ]] && return
+  while IFS= read -r _warn_line; do
+    err "${_warn_line}"
+  done < "${_AWS_WARN_FILE}"
+  > "${_AWS_WARN_FILE}"
 }
 
 # ---------------------------------------------------------------------------
@@ -159,6 +178,11 @@ load_tag_filter() {
     --query 'ResourceTagMappingList[].ResourceARN' \
     --output text 2>/dev/null || true)
   debug "  [tags] ${#TAG_IDS[@]} tagged resource IDs loaded for ${region}"
+  if [[ ${#TAG_IDS[@]} -eq 0 ]]; then
+    err "[WARN] --tags filter returned 0 matching resources in ${region}. Verify:"
+    err "  - IAM permission resourcegroupstaggingapi:GetResources is granted"
+    err "  - Tags are specified exactly as they appear in AWS: ${TAGS}"
+  fi
 }
 
 # Returns 0 if resource matches tag filter (or no filter set), 1 otherwise
@@ -235,6 +259,8 @@ assume_role() {
   AWS_ACCESS_KEY_ID=$(echo "${creds}"    | jq -r '.AccessKeyId')
   AWS_SECRET_ACCESS_KEY=$(echo "${creds}" | jq -r '.SecretAccessKey')
   AWS_SESSION_TOKEN=$(echo "${creds}"    | jq -r '.SessionToken')
+  [[ "${AWS_ACCESS_KEY_ID}" == "null" || -z "${AWS_ACCESS_KEY_ID}" ]] && \
+    die "assume_role: invalid credentials returned for ${arn} — verify the role exists and its trust policy allows this principal"
 }
 
 restore_credentials() {
@@ -246,7 +272,7 @@ restore_credentials() {
 # ---------------------------------------------------------------------------
 write_backend_tf() {
   local path="$1" account="$2" region="$3" service="$4"
-  cat > "${path}/backend.tf" <<HCL
+  cat > "${path}/backend.tf" <<HCL || { err "Failed to write ${path}/backend.tf"; return 1; }
 terraform {
 HCL
 
@@ -284,8 +310,8 @@ HCL
 write_imports_tf() {
   local path="$1"
   shift
-  # Remaining args: pairs of "resource_address import_id"
   local imports=("$@")
+  declare -A _seen_addrs=()
   {
     echo "# Auto-generated import blocks — do not edit by hand."
     echo "# Run: terraform plan -generate-config-out=generated.tf"
@@ -294,10 +320,18 @@ write_imports_tf() {
     while [[ $i -lt ${#imports[@]} ]]; do
       local addr="${imports[$i]}"
       local id="${imports[$((i+1))]}"
+      # Deduplicate slugs: append _2, _3, ... on collision
+      if [[ -n "${_seen_addrs[${addr}]+_}" ]]; then
+        local _n=2
+        while [[ -n "${_seen_addrs[${addr}_${_n}]+_}" ]]; do _n=$((_n+1)); done
+        debug "  [WARN] slug collision '${addr}' — renamed to '${addr}_${_n}'"
+        addr="${addr}_${_n}"
+      fi
+      _seen_addrs["${addr}"]=1
       printf 'import {\n  to = %s\n  id = "%s"\n}\n\n' "${addr}" "${id}"
       i=$((i+2))
     done
-  } > "${path}/imports.tf"
+  } > "${path}/imports.tf" || { err "Failed to write ${path}/imports.tf"; return 1; }
   debug "Wrote imports.tf -> ${path}/imports.tf"
 }
 
@@ -305,15 +339,19 @@ write_resources_tf() {
   local path="$1"
   shift
   local resource_types=("$@")
+  declare -A _seen_types=()
   {
     echo "# Auto-generated resource skeletons."
     echo "# After running 'terraform plan -generate-config-out=generated.tf',"
     echo "# replace these stubs with the contents of generated.tf."
     echo ""
     for rt in "${resource_types[@]}"; do
+      # Skip duplicate resource types (mirrors slug dedup in write_imports_tf)
+      [[ -n "${_seen_types[${rt}]+_}" ]] && continue
+      _seen_types["${rt}"]=1
       printf 'resource "%s" "%s" {}\n\n' "$(echo "${rt}" | cut -d. -f1)" "$(echo "${rt}" | cut -d. -f2)"
     done
-  } > "${path}/resources.tf"
+  } > "${path}/resources.tf" || { err "Failed to write ${path}/resources.tf"; return 1; }
   debug "Wrote resources.tf -> ${path}/resources.tf"
 }
 
@@ -372,24 +410,40 @@ export_ebs() {
 
 export_s3() {
   local account="$1" region="$2" path="$3"
-  # S3 is global but we scope by region via bucket location
+  # S3 is global but we scope by region via bucket location.
+  # Bucket location checks are parallelised to avoid N+1 serial API calls.
   local imports=() types=()
   log "  [s3] listing buckets..."
+
+  local _all_buckets
+  _all_buckets=$(aws s3api list-buckets \
+    --query 'Buckets[].Name' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+  [[ -z "${_all_buckets}" ]] && { debug "  [s3] no buckets found"; return; }
+
+  # Fetch bucket locations in parallel, one file per bucket
+  local _loc_dir; _loc_dir=$(mktemp -d)
   while read -r bucket; do
     [[ -z "${bucket}" ]] && continue
-    local bucket_region
-    bucket_region=$(aws s3api get-bucket-location \
-      --bucket "${bucket}" \
-      --query 'LocationConstraint' \
-      --output text 2>/dev/null || echo "us-east-1")
-    [[ "${bucket_region}" == "None" ]] && bucket_region="us-east-1"
-    [[ "${bucket_region}" != "${region}" ]] && continue
+    (
+      local loc
+      loc=$(aws s3api get-bucket-location \
+        --bucket "${bucket}" \
+        --query 'LocationConstraint' \
+        --output text 2>/dev/null || echo "us-east-1")
+      [[ "${loc}" == "None" || -z "${loc}" ]] && loc="us-east-1"
+      printf '%s\t%s\n' "${bucket}" "${loc}" > "${_loc_dir}/${bucket}"
+    ) &
+  done <<< "${_all_buckets}"
+  wait
+
+  while IFS=$'\t' read -r bucket loc; do
+    [[ "${loc}" != "${region}" ]] && continue
     local slug; slug=$(slugify "${bucket}")
     imports+=("aws_s3_bucket.${slug}" "${bucket}")
     types+=("aws_s3_bucket.${slug}")
-  done < <(aws s3api list-buckets \
-    --query 'Buckets[].Name' \
-    --output text 2>/dev/null | tr '\t' '\n' || true)
+  done < <(cat "${_loc_dir}"/* 2>/dev/null | sort || true)
+  rm -rf "${_loc_dir}"
 
   [[ ${#imports[@]} -eq 0 ]] && { debug "  [s3] no buckets in ${region}"; return; }
   log "  [s3] found $((${#imports[@]}/2)) buckets in ${region}"
@@ -2115,6 +2169,11 @@ dispatch_service() {
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
+# Temp file receives auth/permission warnings from the aws() wrapper even
+# when call sites use 2>/dev/null; flushed after each region sweep.
+_AWS_WARN_FILE=$(mktemp)
+trap 'rm -f "${_AWS_WARN_FILE}" 2>/dev/null' EXIT INT TERM
+
 TOTAL_IMPORTS=0
 SUMMARY_FILE="${OUTPUT_DIR}/summary.txt"
 
@@ -2170,15 +2229,21 @@ for account in "${ACCOUNT_LIST[@]}"; do
         while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${PARALLEL}" ]]; do
           wait -n 2>/dev/null || true
         done
-        ( dispatch_service "${service}" "${account}" "${region}" "${base_path}"
-          checkpoint_mark "${account}" "${region}" "${service}" ) &
+        (
+          dispatch_service "${service}" "${account}" "${region}" "${base_path}" \
+            || err "[FAIL] ${service} scan failed in ${account}/${region}"
+          checkpoint_mark "${account}" "${region}" "${service}"
+        ) &
       else
-        dispatch_service "${service}" "${account}" "${region}" "${base_path}"
+        dispatch_service "${service}" "${account}" "${region}" "${base_path}" \
+          || err "[FAIL] ${service} scan failed in ${account}/${region}"
         checkpoint_mark "${account}" "${region}" "${service}"
       fi
     done
     # Wait for all background service scans in this region to complete
     [[ "${PARALLEL}" -gt 1 ]] && wait
+    # Surface any auth/permission errors collected during this region sweep
+    flush_aws_warnings
   done
 
   if [[ -n "${ROLE_NAME}" ]]; then

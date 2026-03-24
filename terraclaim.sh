@@ -1204,8 +1204,9 @@ export_ecr() {
     --output text 2>/dev/null || true)
 
   # Lifecycle policies are separate resources
-  for i in $(seq 0 2 $((${#imports[@]}-2))); do
-    local repo_name="${imports[$((i+1))]}"
+  local _ecr_i=0
+  while [[ $_ecr_i -lt ${#imports[@]} ]]; do
+    local repo_name="${imports[$((_ecr_i+1))]}"
     local slug; slug=$(slugify "${repo_name}")
     local has_policy
     has_policy=$(aws ecr get-lifecycle-policy \
@@ -1217,6 +1218,7 @@ export_ecr() {
       imports+=("aws_ecr_lifecycle_policy.${slug}" "${repo_name}")
       types+=("aws_ecr_lifecycle_policy.${slug}")
     fi
+    _ecr_i=$((_ecr_i+2))
   done
 
   [[ ${#imports[@]} -eq 0 ]] && { debug "  [ecr] no repositories found"; return; }

@@ -19,6 +19,7 @@
 #   --state-region "region"         Region of the state S3 bucket
 #   --output    "./tf-output"       Root output directory (default: ./tf-output)
 #   --parallel  5                   Max concurrent service scans (default: 5, set to 1 to disable)
+#   --profile   "myprofile"         AWS named profile (overrides AWS_PROFILE env var)
 #   --exclude-services "svc1,svc2"  Comma-separated services to skip
 #   --tags      "Env=prod,Team=sre" Only import resources with these tags (requires Resource Groups Tagging API)
 #   --resume                        Skip account/region/service combinations already written to the output dir
@@ -34,6 +35,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 ACCOUNTS=""
 REGIONS="us-east-1"
+PROFILE=""
 SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch,kinesis,cognito,cloudtrail,guardduty,backup,redshift,glue,ses,codepipeline,codebuild,documentdb,fsx,transfer,elasticbeanstalk,apprunner,memorydb,athena,lakeformation,servicecatalog,lightsail"
 EXCLUDE_SERVICES=""
 TAGS=""
@@ -45,7 +47,7 @@ PARALLEL=5
 RESUME=false
 DRY_RUN=false
 DEBUG=false
-VERSION="1.1.1"
+VERSION="1.2.0"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -73,6 +75,7 @@ while [[ $# -gt 0 ]]; do
     --accounts)     ACCOUNTS="$2";     shift 2 ;;
     --regions)      REGIONS="$2";      shift 2 ;;
     --services)     SERVICES="$2";     shift 2 ;;
+    --profile)      PROFILE="$2";      shift 2 ;;
     --role)         ROLE_NAME="$2";    shift 2 ;;
     --state-bucket) STATE_BUCKET="$2"; shift 2 ;;
     --state-region) STATE_REGION="$2"; shift 2 ;;
@@ -93,6 +96,7 @@ done
 # Input validation
 # ---------------------------------------------------------------------------
 [[ "${PARALLEL}" =~ ^[1-9][0-9]*$ ]] || die "--parallel must be a positive integer (got: '${PARALLEL}')"
+[[ -n "${PROFILE}" ]] && export AWS_PROFILE="${PROFILE}"
 
 # ---------------------------------------------------------------------------
 # Dependency checks
@@ -421,10 +425,13 @@ export_s3() {
     --output text 2>/dev/null | tr '\t' '\n' || true)
   [[ -z "${_all_buckets}" ]] && { debug "  [s3] no buckets found"; return; }
 
-  # Fetch bucket locations in parallel, one file per bucket
+  # Fetch bucket locations in parallel (throttled to PARALLEL concurrent jobs)
   local _loc_dir; _loc_dir=$(mktemp -d)
   while read -r bucket; do
     [[ -z "${bucket}" ]] && continue
+    while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${PARALLEL}" ]]; do
+      wait -n 2>/dev/null || true
+    done
     (
       local loc
       loc=$(aws s3api get-bucket-location \
@@ -479,6 +486,53 @@ export_vpc() {
     --query 'Subnets[].[SubnetId, Tags[?Key==`Name`].Value|[0]]' \
     --output text 2>/dev/null || true)
 
+  # Security groups (skip the default SG — it is not independently manageable)
+  while IFS=$'\t' read -r sg_id sg_name; do
+    [[ -z "${sg_id}" ]] && continue
+    [[ "${sg_name}" == "default" ]] && continue
+    local slug; slug=$(slugify "${sg_name:-${sg_id}}")
+    imports+=("aws_security_group.${slug}" "${sg_id}")
+    types+=("aws_security_group.${slug}")
+  done < <(aws ec2 describe-security-groups \
+    --region "${region}" \
+    --query 'SecurityGroups[].[GroupId, GroupName]' \
+    --output text 2>/dev/null || true)
+
+  # Route tables — skip implicit main route tables (one per VPC, not independently manageable)
+  while IFS=$'\t' read -r rt_id name_tag; do
+    [[ -z "${rt_id}" ]] && continue
+    local slug; slug=$(slugify "${name_tag:-${rt_id}}")
+    imports+=("aws_route_table.${slug}" "${rt_id}")
+    types+=("aws_route_table.${slug}")
+  done < <(aws ec2 describe-route-tables \
+    --region "${region}" \
+    --filters "Name=association.main,Values=false" \
+    --query 'RouteTables[].[RouteTableId, Tags[?Key==`Name`].Value|[0]]' \
+    --output text 2>/dev/null || true)
+
+  # Internet gateways
+  while IFS=$'\t' read -r igw_id name_tag; do
+    [[ -z "${igw_id}" ]] && continue
+    local slug; slug=$(slugify "${name_tag:-${igw_id}}")
+    imports+=("aws_internet_gateway.${slug}" "${igw_id}")
+    types+=("aws_internet_gateway.${slug}")
+  done < <(aws ec2 describe-internet-gateways \
+    --region "${region}" \
+    --query 'InternetGateways[].[InternetGatewayId, Tags[?Key==`Name`].Value|[0]]' \
+    --output text 2>/dev/null || true)
+
+  # NAT gateways (available or pending only)
+  while IFS=$'\t' read -r ngw_id name_tag; do
+    [[ -z "${ngw_id}" ]] && continue
+    local slug; slug=$(slugify "${name_tag:-${ngw_id}}")
+    imports+=("aws_nat_gateway.${slug}" "${ngw_id}")
+    types+=("aws_nat_gateway.${slug}")
+  done < <(aws ec2 describe-nat-gateways \
+    --region "${region}" \
+    --filter "Name=state,Values=available,pending" \
+    --query 'NatGateways[].[NatGatewayId, Tags[?Key==`Name`].Value|[0]]' \
+    --output text 2>/dev/null || true)
+
   [[ ${#imports[@]} -eq 0 ]] && { debug "  [vpc] no VPC resources found"; return; }
   log "  [vpc] found $((${#imports[@]}/2)) VPC resources"
   "${DRY_RUN}" && return
@@ -525,6 +579,18 @@ export_eks() {
       --cluster-name "${cluster}" \
       --region "${region}" \
       --query 'addons[]' \
+      --output text 2>/dev/null | tr '\t' '\n' || true)
+
+    # Fargate profiles
+    while read -r fp; do
+      [[ -z "${fp}" ]] && continue
+      local fp_slug; fp_slug=$(slugify "${fp}")
+      imports+=("aws_eks_fargate_profile.fp_${slug}_${fp_slug}" "${cluster}:${fp}")
+      types+=("aws_eks_fargate_profile.fp_${slug}_${fp_slug}")
+    done < <(aws eks list-fargate-profiles \
+      --cluster-name "${cluster}" \
+      --region "${region}" \
+      --query 'fargateProfileNames[]' \
       --output text 2>/dev/null | tr '\t' '\n' || true)
   done
 
@@ -867,7 +933,7 @@ export_iam() {
   # IAM is global; only export once
   [[ "${region}" != "us-east-1" ]] && return
   local imports=() types=()
-  log "  [iam] listing roles..."
+  log "  [iam] listing roles, instance profiles, and OIDC providers..."
   while read -r role_name; do
     [[ -z "${role_name}" ]] && continue
     local slug; slug=$(slugify "${role_name}")
@@ -875,6 +941,27 @@ export_iam() {
     types+=("aws_iam_role.${slug}")
   done < <(aws iam list-roles \
     --query 'Roles[].RoleName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # Instance profiles
+  while read -r profile_name; do
+    [[ -z "${profile_name}" ]] && continue
+    local slug; slug=$(slugify "${profile_name}")
+    imports+=("aws_iam_instance_profile.${slug}" "${profile_name}")
+    types+=("aws_iam_instance_profile.${slug}")
+  done < <(aws iam list-instance-profiles \
+    --query 'InstanceProfiles[].InstanceProfileName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  # OIDC providers
+  while read -r oidc_arn; do
+    [[ -z "${oidc_arn}" ]] && continue
+    # Slug from the host component of the provider URL
+    local slug; slug=$(slugify "${oidc_arn##*/}")
+    imports+=("aws_iam_openid_connect_provider.${slug}" "${oidc_arn}")
+    types+=("aws_iam_openid_connect_provider.${slug}")
+  done < <(aws iam list-open-id-connect-providers \
+    --query 'OpenIDConnectProviderList[].Arn' \
     --output text 2>/dev/null | tr '\t' '\n' || true)
 
   [[ ${#imports[@]} -eq 0 ]] && { debug "  [iam] no roles found"; return; }
@@ -1435,41 +1522,50 @@ export_cognito() {
   local imports=() types=()
   log "  [cognito] listing user pools and identity pools..."
 
-  # User pools
-  while IFS=$'\t' read -r pool_id pool_name; do
-    [[ -z "${pool_id}" ]] && continue
-    local slug; slug=$(slugify "${pool_name:-${pool_id}}")
-    imports+=("aws_cognito_user_pool.${slug}" "${pool_id}")
-    types+=("aws_cognito_user_pool.${slug}")
+  # User pools — cognito-idp list-user-pools requires --max-results (max 60 per page)
+  # so we must paginate manually rather than relying on AWS CLI auto-pagination.
+  local _up_token="" _up_out
+  while true; do
+    local _up_args=("cognito-idp" "list-user-pools" "--max-results" "60" "--region" "${region}" "--output" "json")
+    [[ -n "${_up_token}" ]] && _up_args+=("--next-token" "${_up_token}")
+    _up_out=$(aws "${_up_args[@]}" 2>/dev/null) || break
+    while IFS=$'\t' read -r pool_id pool_name; do
+      [[ -z "${pool_id}" ]] && continue
+      local slug; slug=$(slugify "${pool_name:-${pool_id}}")
+      imports+=("aws_cognito_user_pool.${slug}" "${pool_id}")
+      types+=("aws_cognito_user_pool.${slug}")
 
-    # User pool clients
-    while IFS=$'\t' read -r client_id client_name; do
-      [[ -z "${client_id}" ]] && continue
-      local csluq; csluq=$(slugify "${client_name:-${client_id}}")
-      imports+=("aws_cognito_user_pool_client.${csluq}" "${pool_id}/${client_id}")
-      types+=("aws_cognito_user_pool_client.${csluq}")
-    done < <(aws cognito-idp list-user-pool-clients \
-      --user-pool-id "${pool_id}" \
-      --region "${region}" \
-      --query 'UserPoolClients[].[ClientId, ClientName]' \
-      --output text 2>/dev/null || true)
-  done < <(aws cognito-idp list-user-pools \
-    --max-results 60 \
-    --region "${region}" \
-    --query 'UserPools[].[Id, Name]' \
-    --output text 2>/dev/null || true)
+      # User pool clients
+      while IFS=$'\t' read -r client_id client_name; do
+        [[ -z "${client_id}" ]] && continue
+        local csluq; csluq=$(slugify "${client_name:-${client_id}}")
+        imports+=("aws_cognito_user_pool_client.${csluq}" "${pool_id}/${client_id}")
+        types+=("aws_cognito_user_pool_client.${csluq}")
+      done < <(aws cognito-idp list-user-pool-clients \
+        --user-pool-id "${pool_id}" \
+        --region "${region}" \
+        --query 'UserPoolClients[].[ClientId, ClientName]' \
+        --output text 2>/dev/null || true)
+    done < <(echo "${_up_out}" | jq -r '.UserPools[]? | "\(.Id)\t\(.Name)"' 2>/dev/null || true)
+    _up_token=$(echo "${_up_out}" | jq -r '.NextToken // empty' 2>/dev/null) || true
+    [[ -z "${_up_token}" ]] && break
+  done
 
-  # Identity pools
-  while IFS=$'\t' read -r identity_pool_id identity_pool_name; do
-    [[ -z "${identity_pool_id}" ]] && continue
-    local slug; slug=$(slugify "${identity_pool_name:-${identity_pool_id}}")
-    imports+=("aws_cognito_identity_pool.${slug}" "${identity_pool_id}")
-    types+=("aws_cognito_identity_pool.${slug}")
-  done < <(aws cognito-identity list-identity-pools \
-    --max-results 60 \
-    --region "${region}" \
-    --query 'IdentityPools[].[IdentityPoolId, IdentityPoolName]' \
-    --output text 2>/dev/null || true)
+  # Identity pools — same pagination constraint as user pools
+  local _ip_token="" _ip_out
+  while true; do
+    local _ip_args=("cognito-identity" "list-identity-pools" "--max-results" "60" "--region" "${region}" "--output" "json")
+    [[ -n "${_ip_token}" ]] && _ip_args+=("--next-token" "${_ip_token}")
+    _ip_out=$(aws "${_ip_args[@]}" 2>/dev/null) || break
+    while IFS=$'\t' read -r identity_pool_id identity_pool_name; do
+      [[ -z "${identity_pool_id}" ]] && continue
+      local slug; slug=$(slugify "${identity_pool_name:-${identity_pool_id}}")
+      imports+=("aws_cognito_identity_pool.${slug}" "${identity_pool_id}")
+      types+=("aws_cognito_identity_pool.${slug}")
+    done < <(echo "${_ip_out}" | jq -r '.IdentityPools[]? | "\(.IdentityPoolId)\t\(.IdentityPoolName)"' 2>/dev/null || true)
+    _ip_token=$(echo "${_ip_out}" | jq -r '.NextToken // empty' 2>/dev/null) || true
+    [[ -z "${_ip_token}" ]] && break
+  done
 
   [[ ${#imports[@]} -eq 0 ]] && { debug "  [cognito] no resources found"; return; }
   log "  [cognito] found $((${#imports[@]}/2)) Cognito resources"

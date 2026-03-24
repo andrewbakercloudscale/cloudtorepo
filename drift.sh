@@ -21,6 +21,7 @@
 #   --regions   "r1,r2"                Comma-separated regions (default: us-east-1)
 #   --services  "svc1,svc2"            Comma-separated services (default: all)
 #   --role      "RoleName"             IAM role to assume in each account
+#   --profile   "myprofile"            AWS named profile (overrides AWS_PROFILE env var)
 #   --apply                            Update imports.tf in place (add new, mark removed)
 #   --report    "./drift-report.txt"   Write report to file in addition to stdout
 #   --parallel  5                      Max concurrent service scans (default: 5, set to 1 to disable)
@@ -40,6 +41,7 @@ SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,ela
 EXCLUDE_SERVICES=""
 TAGS=""
 ROLE_NAME=""
+PROFILE=""
 APPLY=false
 REPORT_FILE=""
 PARALLEL=5
@@ -72,6 +74,7 @@ while [[ $# -gt 0 ]]; do
     --regions)  REGIONS="$2";     shift 2 ;;
     --services) SERVICES="$2";    shift 2 ;;
     --role)     ROLE_NAME="$2";   shift 2 ;;
+    --profile)  PROFILE="$2";     shift 2 ;;
     --apply)            APPLY=true;             shift ;;
     --report)           REPORT_FILE="$2";       shift 2 ;;
     --parallel)         PARALLEL="$2";          shift 2 ;;
@@ -87,6 +90,7 @@ done
 # Input validation
 # ---------------------------------------------------------------------------
 [[ "${PARALLEL}" =~ ^[1-9][0-9]*$ ]] || die "--parallel must be a positive integer (got: '${PARALLEL}')"
+[[ -n "${PROFILE}" ]] && export AWS_PROFILE="${PROFILE}"
 
 # ---------------------------------------------------------------------------
 # Dependency checks

@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.2.0] — 2026-03-24
+
+### Added
+- `--profile` flag in `terraclaim.sh` and `drift.sh` — pass a named AWS profile
+  (exported as `AWS_PROFILE`; takes effect before any cross-account role assumption).
+- Pagination for Cognito exports — `cognito-idp list-user-pools` and
+  `cognito-identity list-identity-pools` now follow `NextToken` until all
+  pools are returned (previously hard-capped at 60 per run).
+- VPC exporter now captures security groups (non-default), non-main route tables,
+  internet gateways, and NAT gateways.
+- IAM exporter now captures instance profiles (`aws_iam_instance_profile`) and
+  OIDC providers (`aws_iam_openid_connect_provider`).
+- EKS exporter now captures Fargate profiles (`aws_eks_fargate_profile`).
+- S3 bucket-location parallel scan is throttled to `--parallel N` concurrent jobs
+  (previously unbounded, which could hit EC2 API rate limits on large accounts).
+- `tests/` — bats-core test suite with mock AWS CLI; covers flag parsing, dry-run
+  behaviour, service exporter output structure, slug collision, and `--resume`.
+
+---
+
 ## [1.0.0] — 2026-03-24
 
 ### Added

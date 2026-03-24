@@ -39,7 +39,7 @@ err()  { echo "[ERROR] $*" >&2; }
 die()  { err "$*"; exit 1; }
 
 usage() {
-  grep '^#' "$0" | sed 's/^# \{0,1\}//'
+  grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'
   exit 0
 }
 
@@ -71,16 +71,17 @@ done
 # Build a set of import IDs already covered by the output directory
 # ---------------------------------------------------------------------------
 log "Scanning import blocks in ${OUTPUT_DIR}..."
-declare -A COVERED_IDS
+_covered_ids=$(mktemp)
+trap 'rm -f "${_covered_ids}" "${_missed_data:-}" 2>/dev/null' EXIT INT TERM
 
 while IFS= read -r line; do
   # Extract the id = "..." value from each import block
   if [[ "${line}" =~ ^[[:space:]]*id[[:space:]]*=[[:space:]]*\"(.+)\"[[:space:]]*$ ]]; then
-    COVERED_IDS["${BASH_REMATCH[1]}"]="1"
+    echo "${BASH_REMATCH[1]}" >> "${_covered_ids}"
   fi
 done < <(grep -r 'id = "' "${OUTPUT_DIR}" --include='imports.tf' 2>/dev/null || true)
 
-COVERED_COUNT=${#COVERED_IDS[@]}
+COVERED_COUNT=$(sort -u "${_covered_ids}" | wc -l | tr -d ' ') || true
 log "Found ${COVERED_COUNT} covered import IDs."
 
 if "${DRY_RUN}"; then
@@ -125,7 +126,7 @@ while true; do
     --query-string "${QUERY_STRING}"
     --output json
   )
-  [[ -n "${NEXT_TOKEN}" ]] && local_args+=(--next-token "${NEXT_TOKEN}")
+  if [[ -n "${NEXT_TOKEN}" ]]; then local_args+=(--next-token "${NEXT_TOKEN}"); fi
 
   response=$(aws resource-explorer-2 search "${local_args[@]}" 2>/dev/null) || \
     die "Resource Explorer search failed. Check permissions: resource-explorer-2:Search"
@@ -136,7 +137,7 @@ while true; do
   done < <(echo "${response}" | jq -c '.Resources[]' 2>/dev/null || true)
 
   NEXT_TOKEN=$(echo "${response}" | jq -r '.NextToken // empty' 2>/dev/null || true)
-  [[ -z "${NEXT_TOKEN}" ]] && break
+  if [[ -z "${NEXT_TOKEN}" ]]; then break; fi
   debug "Paginating... (${#ALL_RESOURCES[@]} resources so far)"
 done
 
@@ -146,7 +147,7 @@ log "Resource Explorer returned ${TOTAL} resources."
 # ---------------------------------------------------------------------------
 # Compare resources against covered import IDs
 # ---------------------------------------------------------------------------
-declare -A MISSED_BY_REGION_SERVICE
+_missed_data=$(mktemp)
 MATCHED=0
 MISSED=0
 
@@ -160,15 +161,12 @@ for resource_json in "${ALL_RESOURCES[@]}"; do
   resource_id="${resource_id##*/}"
 
   # Check if this ARN or resource ID is in covered set
-  if [[ -n "${COVERED_IDS[${arn}]+_}" ]] || [[ -n "${COVERED_IDS[${resource_id}]+_}" ]]; then
+  if grep -qxF "${arn}" "${_covered_ids}" 2>/dev/null || \
+     grep -qxF "${resource_id}" "${_covered_ids}" 2>/dev/null; then
     MATCHED=$((MATCHED + 1))
   else
     MISSED=$((MISSED + 1))
-    key="${res_region}|${res_type}"
-    if [[ -z "${MISSED_BY_REGION_SERVICE[${key}]+_}" ]]; then
-      MISSED_BY_REGION_SERVICE["${key}"]=""
-    fi
-    MISSED_BY_REGION_SERVICE["${key}"]+="${arn}"$'\n'
+    printf '%s\t%s\n' "${res_region}|${res_type}" "${arn}" >> "${_missed_data}"
   fi
 done
 
@@ -195,7 +193,7 @@ if [[ "${MISSED}" -gt 0 ]]; then
   echo ""
 
   # Sort keys for consistent output
-  sorted_keys=$(printf '%s\n' "${!MISSED_BY_REGION_SERVICE[@]}" | sort)
+  sorted_keys=$(awk -F'\t' '{print $1}' "${_missed_data}" | sort -u) || true
 
   current_region=""
   while IFS= read -r key; do
@@ -214,7 +212,7 @@ if [[ "${MISSED}" -gt 0 ]]; then
     while IFS= read -r arn_line; do
       [[ -z "${arn_line}" ]] && continue
       echo "    ARN:  ${arn_line}"
-    done <<< "${MISSED_BY_REGION_SERVICE[${key}]}"
+    done < <(awk -F'\t' -v k="${key}" '$1==k{print $2}' "${_missed_data}")
   done <<< "${sorted_keys}"
 
   echo ""

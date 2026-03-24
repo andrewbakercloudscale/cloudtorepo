@@ -31,6 +31,7 @@
 
 set -euo pipefail
 
+
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
@@ -60,7 +61,7 @@ slugify() {
 }
 
 usage() {
-  grep '^#' "$0" | sed 's/^# \{0,1\}//'
+  grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'
   exit 0
 }
 
@@ -162,14 +163,14 @@ flush_aws_warnings() {
 }
 
 # ---------------------------------------------------------------------------
-# Tag filter
+# Tag filter (temp-file set — bash 3.2 compatible)
 # ---------------------------------------------------------------------------
-declare -A TAG_IDS=()
+_TAG_IDS_FILE=""   # initialised alongside the main EXIT trap
 
 load_tag_filter() {
   local region="$1"
-  [[ -z "${TAGS}" ]] && return
-  TAG_IDS=()
+  [[ -z "${TAGS}" ]] && return 0
+  true > "${_TAG_IDS_FILE}"
   local filter_args=()
   IFS=',' read -ra _pairs <<< "${TAGS}"
   for _pair in "${_pairs[@]}"; do
@@ -181,16 +182,17 @@ load_tag_filter() {
   local _arn
   while IFS= read -r _arn; do
     [[ -z "${_arn}" ]] && continue
-    TAG_IDS["${_arn}"]="1"
+    echo "${_arn}" >> "${_TAG_IDS_FILE}"
     local _id="${_arn##*/}"; [[ "${_id}" == "${_arn}" ]] && _id="${_arn##*:}"
-    TAG_IDS["${_id}"]="1"
+    echo "${_id}" >> "${_TAG_IDS_FILE}"
   done < <(aws resourcegroupstaggingapi get-resources \
     --region "${region}" \
     --tag-filters "${filter_args[@]}" \
     --query 'ResourceTagMappingList[].ResourceARN' \
     --output text 2>/dev/null || true)
-  debug "  [tags] ${#TAG_IDS[@]} tagged resource IDs loaded for ${region}"
-  if [[ ${#TAG_IDS[@]} -eq 0 ]]; then
+  local _count; _count=$(wc -l < "${_TAG_IDS_FILE}" | tr -d ' ') || true
+  debug "  [tags] ${_count} tagged resource IDs loaded for ${region}"
+  if [[ ! -s "${_TAG_IDS_FILE}" ]]; then
     err "[WARN] --tags filter returned 0 matching resources in ${region}. Verify:"
     err "  - IAM permission resourcegroupstaggingapi:GetResources is granted"
     err "  - Tags are specified exactly as they appear in AWS: ${TAGS}"
@@ -199,8 +201,7 @@ load_tag_filter() {
 
 tag_match() {
   [[ -z "${TAGS}" ]] && return 0
-  [[ -n "${TAG_IDS[$1]+_}" ]] && return 0
-  return 1
+  grep -qxF "$1" "${_TAG_IDS_FILE}" 2>/dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -230,28 +231,32 @@ restore_credentials() {
 
 # ---------------------------------------------------------------------------
 # Parse known import IDs from an existing imports.tf
-# Populates associative array: KNOWN_IDS[id]=address
+# Writes to TSV temp files: _KNOWN_IDS_FILE (id\taddr) and _KNOWN_ADDRS_FILE (addr\tid)
+# (bash 3.2 compatible — replaces declare -gA KNOWN_IDS / KNOWN_ADDRS)
 # ---------------------------------------------------------------------------
+_KNOWN_IDS_FILE=""    # initialised alongside the main EXIT trap
+_KNOWN_ADDRS_FILE=""  # initialised alongside the main EXIT trap
+
 parse_known_ids() {
   local imports_file="$1"
-  unset KNOWN_IDS; declare -gA KNOWN_IDS
-  unset KNOWN_ADDRS; declare -gA KNOWN_ADDRS
+  true > "${_KNOWN_IDS_FILE}"
+  true > "${_KNOWN_ADDRS_FILE}"
 
-  [[ -f "${imports_file}" ]] || return
+  [[ -f "${imports_file}" ]] || return 0
 
-  local current_addr=""
+  local current_addr="" line id
   while IFS= read -r line; do
     if [[ "${line}" =~ ^[[:space:]]*to[[:space:]]*=[[:space:]]*(.+)[[:space:]]*$ ]]; then
       current_addr="${BASH_REMATCH[1]// /}"
     fi
     if [[ "${line}" =~ ^[[:space:]]*id[[:space:]]*=[[:space:]]*\"(.+)\"[[:space:]]*$ ]]; then
-      local id="${BASH_REMATCH[1]}"
-      KNOWN_IDS["${id}"]="${current_addr}"
-      KNOWN_ADDRS["${current_addr}"]="${id}"
+      id="${BASH_REMATCH[1]}"
+      printf '%s\t%s\n' "${id}" "${current_addr}" >> "${_KNOWN_IDS_FILE}"
+      printf '%s\t%s\n' "${current_addr}" "${id}" >> "${_KNOWN_ADDRS_FILE}"
       current_addr=""
     fi
   done < "${imports_file}"
-  debug "    parsed ${#KNOWN_IDS[@]} known IDs from ${imports_file}"
+  debug "    parsed $(awk 'END{print NR+0}' "${_KNOWN_IDS_FILE}") known IDs from ${imports_file}"
 }
 
 # ---------------------------------------------------------------------------
@@ -1374,7 +1379,11 @@ _scan_svc_to_tmp() {
 # Temp file receives auth/permission warnings from the aws() wrapper even
 # when call sites use 2>/dev/null; flushed after each region sweep.
 _AWS_WARN_FILE=$(mktemp)
-trap 'rm -f "${_AWS_WARN_FILE}" 2>/dev/null' EXIT INT TERM
+# Temp files used as tag-filter set and known-ID maps (bash 3.2 compatible)
+_TAG_IDS_FILE=$(mktemp)
+_KNOWN_IDS_FILE=$(mktemp)
+_KNOWN_ADDRS_FILE=$(mktemp)
+trap 'rm -f "${_AWS_WARN_FILE}" "${_TAG_IDS_FILE}" "${_KNOWN_IDS_FILE}" "${_KNOWN_ADDRS_FILE}" 2>/dev/null' EXIT INT TERM
 
 TOTAL_NEW=0
 TOTAL_REMOVED=0
@@ -1415,17 +1424,17 @@ for account in "${ACCOUNT_LIST[@]}"; do
     # -----------------------------------------------------------------------
     # Phase 1 — Parallel scan: each service writes LIVE_PAIRS to a temp file
     # -----------------------------------------------------------------------
-    declare -A _SVC_TMPFILES=()
+    # Use a temp directory: each service's output is ${_SVC_TMPDIR}/${service}
+    local _SVC_TMPDIR; _SVC_TMPDIR=$(mktemp -d)
 
     for service in "${SERVICE_LIST[@]}"; do
       service="${service// /}"
       [[ -z "${service}" ]] && continue
-      _tmp=$(mktemp)
-      _SVC_TMPFILES["${service}"]="${_tmp}"
+      _tmp="${_SVC_TMPDIR}/${service}"
       log "  [${service}] scanning..."
       if [[ "${PARALLEL}" -gt 1 ]]; then
         while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${PARALLEL}" ]]; do
-          wait -n 2>/dev/null || true
+          sleep 0.1
         done
         (
           _scan_svc_to_tmp "${service}" "${account}" "${region}" "${_tmp}" \
@@ -1436,7 +1445,7 @@ for account in "${ACCOUNT_LIST[@]}"; do
           || err "[FAIL] ${service} scan failed in ${region}"
       fi
     done
-    [[ "${PARALLEL}" -gt 1 ]] && wait
+    if [[ "${PARALLEL}" -gt 1 ]]; then wait; fi
 
     # -----------------------------------------------------------------------
     # Phase 2 — Sequential diff + report + apply
@@ -1450,21 +1459,20 @@ for account in "${ACCOUNT_LIST[@]}"; do
 
       # Read LIVE_PAIRS back from the temp file written by the scan phase
       LIVE_PAIRS=()
-      _tmp="${_SVC_TMPFILES["${service}"]}"
+      _tmp="${_SVC_TMPDIR}/${service}"
       if [[ -f "${_tmp}" ]] && [[ -s "${_tmp}" ]]; then
         while IFS= read -r _line; do
           [[ -n "${_line}" ]] && LIVE_PAIRS+=("${_line}")
         done < "${_tmp}"
       fi
-      rm -f "${_tmp}" 2>/dev/null || true
 
-      # Build lookup of live IDs: id -> addr
-      declare -A LIVE_IDS=()
+      # Build lookup of live IDs: TSV file with id\taddr per line
+      local _live_ids_file; _live_ids_file=$(mktemp)
       i=0
       while [[ $i -lt ${#LIVE_PAIRS[@]} ]]; do
         addr="${LIVE_PAIRS[$i]}"
         id="${LIVE_PAIRS[$((i+1))]}"
-        LIVE_IDS["${id}"]="${addr}"
+        printf '%s\t%s\n' "${id}" "${addr}" >> "${_live_ids_file}"
         i=$((i+2))
       done
 
@@ -1473,22 +1481,26 @@ for account in "${ACCOUNT_LIST[@]}"; do
 
       # Diff: NEW = in live but not in known
       new_pairs=()
-      for id in "${!LIVE_IDS[@]}"; do
-        if [[ -z "${KNOWN_IDS[${id}]+_}" ]]; then
-          new_pairs+=("${LIVE_IDS[${id}]}" "${id}")
+      while IFS=$'\t' read -r id addr; do
+        if ! awk -F'\t' -v k="${id}" '$1==k{f=1;exit}END{exit 1-f}' \
+             "${_KNOWN_IDS_FILE}" 2>/dev/null; then
+          new_pairs+=("${addr}" "${id}")
         fi
-      done
+      done < "${_live_ids_file}"
 
       # Diff: REMOVED = in known but not in live
       removed_addrs=()
-      for id in "${!KNOWN_IDS[@]}"; do
-        if [[ -z "${LIVE_IDS[${id}]+_}" ]]; then
-          removed_addrs+=("${KNOWN_IDS[${id}]}")
+      while IFS=$'\t' read -r id known_addr; do
+        if ! awk -F'\t' -v k="${id}" '$1==k{f=1;exit}END{exit 1-f}' \
+             "${_live_ids_file}" 2>/dev/null; then
+          removed_addrs+=("${known_addr}")
         fi
-      done
+      done < "${_KNOWN_IDS_FILE}"
 
-      unchanged=$(( ${#LIVE_IDS[@]} - ${#new_pairs[@]} / 2 ))
+      live_count=$(awk 'END{print NR+0}' "${_live_ids_file}")
+      unchanged=$(( live_count - ${#new_pairs[@]} / 2 ))
       [[ $unchanged -lt 0 ]] && unchanged=0
+      rm -f "${_live_ids_file}" 2>/dev/null || true
 
       TOTAL_NEW=$(( TOTAL_NEW + ${#new_pairs[@]} / 2 ))
       TOTAL_REMOVED=$(( TOTAL_REMOVED + ${#removed_addrs[@]} ))
@@ -1516,7 +1528,8 @@ for account in "${ACCOUNT_LIST[@]}"; do
         if [[ ${#removed_addrs[@]} -gt 0 ]]; then
           report "  REMOVED  (${#removed_addrs[@]} resource(s) in imports.tf, no longer in AWS)"
           for addr in "${removed_addrs[@]}"; do
-            report "    - ${addr}  (id: ${KNOWN_ADDRS[${addr}]:-unknown})"
+            local _kid; _kid=$(awk -F'\t' -v k="${addr}" '$1==k{print $2;exit}' "${_KNOWN_ADDRS_FILE}")
+            report "    - ${addr}  (id: ${_kid:-unknown})"
           done
         fi
 
@@ -1539,9 +1552,8 @@ for account in "${ACCOUNT_LIST[@]}"; do
         debug "  [${service}] no drift in ${region} (${unchanged} resources unchanged)"
       fi
 
-      unset LIVE_IDS LIVE_ADDRS
     done
-    unset _SVC_TMPFILES
+    rm -rf "${_SVC_TMPDIR}" 2>/dev/null || true
     # Surface any auth/permission errors collected during this region sweep
     flush_aws_warnings
   done

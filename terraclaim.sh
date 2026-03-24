@@ -33,14 +33,6 @@
 
 set -euo pipefail
 
-# Bash 4.3+ required: associative arrays (declare -A) and wait -n
-if [[ "${BASH_VERSINFO[0]}" -lt 4 ]] || \
-   { [[ "${BASH_VERSINFO[0]}" -eq 4 ]] && [[ "${BASH_VERSINFO[1]}" -lt 3 ]]; }; then
-  echo "[ERROR] Bash 4.3 or later is required (found ${BASH_VERSION})" >&2
-  echo "[ERROR] macOS ships Bash 3.2 — install a newer version: brew install bash" >&2
-  exit 1
-fi
-
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
@@ -174,13 +166,14 @@ flush_aws_warnings() {
 
 # ---------------------------------------------------------------------------
 # Tag filter — populate TAG_IDS lookup from Resource Groups Tagging API
+# (Uses a temp file for Bash 3.2 compatibility — no associative arrays needed)
 # ---------------------------------------------------------------------------
-declare -A TAG_IDS=()
+_TAG_IDS_FILE=""   # initialised in the main-loop section alongside the trap
 
 load_tag_filter() {
   local region="$1"
-  [[ -z "${TAGS}" ]] && return
-  TAG_IDS=()
+  [[ -z "${TAGS}" ]] && return 0
+  true > "${_TAG_IDS_FILE}"   # clear previous region's entries
   local filter_args=()
   IFS=',' read -ra _pairs <<< "${TAGS}"
   for _pair in "${_pairs[@]}"; do
@@ -192,17 +185,18 @@ load_tag_filter() {
   local _arn
   while IFS= read -r _arn; do
     [[ -z "${_arn}" ]] && continue
-    TAG_IDS["${_arn}"]="1"
+    echo "${_arn}" >> "${_TAG_IDS_FILE}"
     # Extract bare ID: last component after / or : (handles most ARN formats)
     local _id="${_arn##*/}"; [[ "${_id}" == "${_arn}" ]] && _id="${_arn##*:}"
-    TAG_IDS["${_id}"]="1"
+    echo "${_id}" >> "${_TAG_IDS_FILE}"
   done < <(aws resourcegroupstaggingapi get-resources \
     --region "${region}" \
     --tag-filters "${filter_args[@]}" \
     --query 'ResourceTagMappingList[].ResourceARN' \
     --output text 2>/dev/null || true)
-  debug "  [tags] ${#TAG_IDS[@]} tagged resource IDs loaded for ${region}"
-  if [[ ${#TAG_IDS[@]} -eq 0 ]]; then
+  local _count; _count=$(wc -l < "${_TAG_IDS_FILE}" | tr -d ' ') || true
+  debug "  [tags] ${_count} tagged resource IDs loaded for ${region}"
+  if [[ ! -s "${_TAG_IDS_FILE}" ]]; then
     err "[WARN] --tags filter returned 0 matching resources in ${region}. Verify:"
     err "  - IAM permission resourcegroupstaggingapi:GetResources is granted"
     err "  - Tags are specified exactly as they appear in AWS: ${TAGS}"
@@ -212,8 +206,7 @@ load_tag_filter() {
 # Returns 0 if resource matches tag filter (or no filter set), 1 otherwise
 tag_match() {
   [[ -z "${TAGS}" ]] && return 0
-  [[ -n "${TAG_IDS[$1]+_}" ]] && return 0
-  return 1
+  grep -qxF "$1" "${_TAG_IDS_FILE}" 2>/dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -331,11 +324,20 @@ HCL
   debug "Wrote backend.tf -> ${path}/backend.tf"
 }
 
+# Bash 3.2 compatible set-membership check for indexed arrays
+# Usage: _arr_has NEEDLE "${array[@]}"
+_arr_has() {
+  local _needle="$1"; shift
+  local _item
+  for _item in "$@"; do [[ "${_item}" == "${_needle}" ]] && return 0; done
+  return 1
+}
+
 write_imports_tf() {
   local path="$1"
   shift
   local imports=("$@")
-  declare -A _seen_addrs=()
+  local _seen_addrs=()
   {
     echo "# Auto-generated import blocks — do not edit by hand."
     echo "# Run: terraform plan -generate-config-out=generated.tf"
@@ -345,13 +347,13 @@ write_imports_tf() {
       local addr="${imports[$i]}"
       local id="${imports[$((i+1))]}"
       # Deduplicate slugs: append _2, _3, ... on collision
-      if [[ -n "${_seen_addrs[${addr}]+_}" ]]; then
+      if _arr_has "${addr}" "${_seen_addrs[@]+"${_seen_addrs[@]}"}"; then
         local _n=2
-        while [[ -n "${_seen_addrs[${addr}_${_n}]+_}" ]]; do _n=$((_n+1)); done
+        while _arr_has "${addr}_${_n}" "${_seen_addrs[@]+"${_seen_addrs[@]}"}"; do _n=$((_n+1)); done
         debug "  [WARN] slug collision '${addr}' — renamed to '${addr}_${_n}'"
         addr="${addr}_${_n}"
       fi
-      _seen_addrs["${addr}"]=1
+      _seen_addrs+=("${addr}")
       printf 'import {\n  to = %s\n  id = "%s"\n}\n\n' "${addr}" "${id}"
       i=$((i+2))
     done
@@ -363,7 +365,7 @@ write_resources_tf() {
   local path="$1"
   shift
   local resource_types=("$@")
-  declare -A _seen_types=()
+  local _seen_types=()
   {
     echo "# Auto-generated resource skeletons."
     echo "# After running 'terraform plan -generate-config-out=generated.tf',"
@@ -371,8 +373,8 @@ write_resources_tf() {
     echo ""
     for rt in "${resource_types[@]}"; do
       # Skip duplicate resource types (mirrors slug dedup in write_imports_tf)
-      [[ -n "${_seen_types[${rt}]+_}" ]] && continue
-      _seen_types["${rt}"]=1
+      _arr_has "${rt}" "${_seen_types[@]+"${_seen_types[@]}"}" && continue
+      _seen_types+=("${rt}")
       printf 'resource "%s" "%s" {}\n\n' "$(echo "${rt}" | cut -d. -f1)" "$(echo "${rt}" | cut -d. -f2)"
     done
   } > "${path}/resources.tf" || { err "Failed to write ${path}/resources.tf"; return 1; }
@@ -452,7 +454,7 @@ export_s3() {
   while read -r bucket; do
     [[ -z "${bucket}" ]] && continue
     while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${PARALLEL}" ]]; do
-      wait -n 2>/dev/null || true
+      sleep 0.1
     done
     (
       local loc
@@ -2332,7 +2334,7 @@ _run_account() {
       if [[ "${PARALLEL}" -gt 1 ]]; then
         # Throttle to at most PARALLEL concurrent jobs
         while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${PARALLEL}" ]]; do
-          wait -n 2>/dev/null || true
+          sleep 0.1
         done
         (
           dispatch_service "${service}" "${account}" "${region}" "${base_path}" \
@@ -2409,7 +2411,9 @@ generate_json_summary() {
 # Temp file receives auth/permission warnings from the aws() wrapper even
 # when call sites use 2>/dev/null; flushed after each region sweep.
 _AWS_WARN_FILE=$(mktemp)
-trap 'rm -f "${_AWS_WARN_FILE}" 2>/dev/null' EXIT INT TERM
+# Temp file used as the tag-filter set (bash 3.2 compatible; replaces declare -A)
+_TAG_IDS_FILE=$(mktemp)
+trap 'rm -f "${_AWS_WARN_FILE}" "${_TAG_IDS_FILE}" 2>/dev/null' EXIT INT TERM
 
 TOTAL_IMPORTS=0
 SUMMARY_FILE="${OUTPUT_DIR}/summary.txt"
@@ -2437,7 +2441,7 @@ for account in "${ACCOUNT_LIST[@]}"; do
   [[ -z "${account}" ]] && continue
   if [[ "${ACCOUNT_PARALLEL}" -gt 1 ]]; then
     while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${ACCOUNT_PARALLEL}" ]]; do
-      wait -n 2>/dev/null || true
+      sleep 0.1
     done
     ( _run_account "${account}" ) &
   else

@@ -1,4 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="7" fill="#111622"/>
-  <text x="16" y="22" font-family="'SF Pro Display','Inter','Segoe UI',sans-serif" font-size="14" font-weight="800" text-anchor="middle" fill="#7c6af7" letter-spacing="-0.5">tc</text>
+  <rect width="32" height="32" rx="7" fill="#1a1f2e"/>
+  <text font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="20" y="23">
+    <tspan x="2" fill="#7B42BC">t</tspan><tspan fill="#ffffff">c</tspan>
+  </text>
 </svg>

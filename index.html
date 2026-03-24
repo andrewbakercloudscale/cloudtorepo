@@ -3,23 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Terraclaim — Claim your AWS estate as Terraform</title>
-  <link rel="icon" type="image/jpeg" href="terraclaim.jpg" />
-  <link rel="shortcut icon" href="terraclaim.jpg" />
+  <title>Terraclaim: Claim your AWS estate as Terraform</title>
+  <link rel="icon" type="image/png" href="favicon-tc.png" />
+  <link rel="shortcut icon" href="favicon-tc.png" />
   <meta name="description" content="Terraclaim scans your AWS account and generates ready-to-use Terraform import blocks. No click-ops. No paid tools." />
-  <meta property="og:title" content="Terraclaim — Claim your AWS estate as Terraform" />
+  <meta property="og:title" content="Terraclaim: Claim your AWS estate as Terraform" />
   <meta property="og:description" content="Scan your AWS account and generate ready-to-use Terraform import blocks. No click-ops. No paid tools." />
   <meta property="og:image" content="https://terraclaim.org/terraclaim.png" />
   <meta property="og:image:secure_url" content="https://terraclaim.org/terraclaim.png" />
   <meta property="og:image:type" content="image/png" />
   <meta property="og:image:width" content="1024" />
   <meta property="og:image:height" content="1024" />
-  <meta property="og:image:alt" content="Terraclaim — Claim your AWS estate as Terraform" />
+  <meta property="og:image:alt" content="Terraclaim: Claim your AWS estate as Terraform" />
   <meta property="og:url" content="https://terraclaim.org" />
   <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:image" content="https://terraclaim.org/terraclaim.png" />
-  <meta name="twitter:image:alt" content="Terraclaim — Claim your AWS estate as Terraform" />
+  <meta name="twitter:image:alt" content="Terraclaim: Claim your AWS estate as Terraform" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -159,6 +159,8 @@
       transition: transform 0.2s ease, filter 0.2s ease;
       will-change: transform;
       cursor: pointer;
+      mix-blend-mode: screen;
+      border-radius: var(--radius);
     }
 
     .hero-logo:hover {
@@ -187,6 +189,8 @@
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
+
+    .tc-terra { color: var(--accent); }
 
     .hero-sub {
       font-size: clamp(1rem, 2vw, 1.2rem);
@@ -596,7 +600,7 @@
 <body>
 
 <!-- MATRIX RAIN OVERLAY -->
-<div id="matrix-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:9998;opacity:1;transition:opacity 1s ease;pointer-events:none;">
+<div id="matrix-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:9998;opacity:1;transition:opacity 1.5s ease;pointer-events:none;">
   <canvas id="matrix-canvas" style="display:block;width:100%;height:100%;"></canvas>
 </div>
 
@@ -620,8 +624,8 @@
 <!-- HERO -->
 <section class="hero">
   <img src="terraclaim.jpg" alt="Terraclaim" class="hero-logo" style="width:120px;height:120px;object-fit:contain;margin-bottom:1.5rem;filter:drop-shadow(0 0 24px rgba(124,106,247,0.4));" />
-  <div class="badge">Open Source &mdash; MIT License</div>
-  <h1>Claim your AWS estate<br>as <span class="gradient">Terraform</span></h1>
+  <div class="badge">Open Source · MIT License</div>
+  <h1>Claim your AWS estate<br>as <span class="gradient">Terraform</span><br>with <span class="tc-terra">terra</span>claim</h1>
   <p class="hero-sub">
     Terraclaim scans your AWS account and generates ready-to-use Terraform
     <code style="background:rgba(94,234,212,0.1);border-color:rgba(94,234,212,0.2);color:var(--accent2);">import {}</code> blocks,
@@ -662,7 +666,7 @@
 <!-- WHY HARD -->
 <section id="why-hard">
   <div class="section-label">Context</div>
-  <h2>Why this is hard — and why most guides get it wrong</h2>
+  <h2>Why this is hard, and why most guides get it wrong</h2>
   <p class="section-intro" style="max-width:100%;">
     The instinct is to think of this as "exporting Terraform." It is not. What you are
     actually doing is closer to <strong style="color:var(--text);">reverse compilation</strong>:
@@ -693,7 +697,7 @@
         services do not map cleanly to Terraform resources no matter what you do.
       </p>
       <p>
-        IAM is particularly brutal — the relationship between roles, policies, attachments,
+        IAM is particularly brutal: the relationship between roles, policies, attachments,
         and instance profiles is rarely clean in a lived-in estate. Accept these rough edges
         going in and you will be far less surprised.
       </p>
@@ -709,7 +713,7 @@
   <h2>From live AWS to Terraform in minutes</h2>
   <p class="section-intro">
     Terraclaim uses the AWS CLI to discover your resources, then writes the Terraform files
-    needed to bring them under version control — with no manual resource hunting required.
+    needed to bring them under version control, with no manual resource hunting required.
   </p>
   <div class="steps">
     <div class="step">
@@ -720,7 +724,7 @@
     <div class="step">
       <div class="step-num">STEP 02</div>
       <h3>Import blocks generated</h3>
-      <p>One <code>import {}</code> block per discovered resource, grouped into per-service directories — ready for Terraform 1.5+.</p>
+      <p>One <code>import {}</code> block per discovered resource, grouped into per-service directories, ready for Terraform 1.5+.</p>
     </div>
     <div class="step">
       <div class="step-num">STEP 03</div>
@@ -793,7 +797,7 @@
       <div class="tags">
         <span class="tag">cognito</span>
       </div>
-      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">User pools, clients, and identity pools — fully paginated beyond the 60-pool API limit.</p>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">User pools, clients, and identity pools, fully paginated beyond the 60-pool API limit.</p>
     </div>
     <div class="service-card">
       <h3>ETL &amp; Analytics</h3>
@@ -856,7 +860,7 @@
     </div>
     <div class="output-card">
       <h3>resources.tf</h3>
-      <p>Empty resource skeletons matching every import block — populated by <code>terraform plan -generate-config-out</code>.</p>
+      <p>Empty resource skeletons matching every import block, populated by <code>terraform plan -generate-config-out</code>.</p>
 <pre><span class="kw">resource</span> <span class="str">"aws_eks_cluster"</span> <span class="str">"cluster_production"</span> {
   <span class="cm"># populated by terraform plan</span>
   <span class="cm"># -generate-config-out=generated.tf</span>
@@ -885,7 +889,7 @@
   <h2>Stay in sync after day one</h2>
   <p class="section-intro">
     Once your Terraform baseline is committed, <code>drift.sh</code> re-scans AWS and
-    diffs the results against your <code>imports.tf</code> files — no AWS Resource Explorer required.
+    diffs the results against your <code>imports.tf</code> files with no AWS Resource Explorer required.
   </p>
   <div class="steps">
     <div class="step">
@@ -939,7 +943,7 @@ Removed (stale):          1</pre>
   <p class="section-intro">
     After exporting, <code>run.sh</code> automates the <code>terraform init</code> +
     <code>terraform plan -generate-config-out=generated.tf</code> step across every
-    service directory — no more running it manually per folder.
+    service directory, no more running it manually per folder.
   </p>
   <div class="steps">
     <div class="step">
@@ -1033,7 +1037,7 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
   --regions "eu-west-1" \
   --services "ec2,vpc,rds,eks" \
   --output ./tf-output</pre>
-        <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">Pass any named profile from <code>~/.aws/config</code>. Works alongside <code>--role</code> for cross-account sweeps — the profile authenticates the base caller, the role is assumed per account.</p>
+        <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">Pass any named profile from <code>~/.aws/config</code>. Works alongside <code>--role</code> for cross-account sweeps; the profile authenticates the base caller, the role is assumed per account.</p>
       </div>
     </div>
     <div class="qs-step">
@@ -1044,7 +1048,7 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
   --regions "us-east-1" \
   --tags "Env=prod,Team=sre" \
   --output ./tf-output</pre>
-        <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">Only imports resources that carry the specified tags. Uses the Resource Groups Tagging API — no extra setup required beyond the tags themselves.</p>
+        <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">Only imports resources that carry the specified tags. Uses the Resource Groups Tagging API with no extra setup required beyond the tags themselves.</p>
       </div>
     </div>
     <div class="qs-step">
@@ -1074,11 +1078,11 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
 <!-- FOOTER -->
 <footer>
   <p style="margin-bottom:0.5rem;">
-    <strong style="color:var(--text);">terraclaim</strong> &mdash; open source, MIT licensed
+    <strong style="color:var(--text);">terraclaim</strong> · open source, MIT licensed
   </p>
   <p style="margin-bottom:0.75rem;">
     Built by <a href="https://andrewbaker.ninja" target="_blank" rel="noopener" style="color:var(--accent2);font-weight:600;text-decoration:none;transition:color 0.2s;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--accent2)'">Andrew Baker</a>
-    <span style="color:var(--border);">&mdash;</span>
+    <span style="color:var(--border);">·</span>
     <span style="color:var(--muted);font-size:0.8rem;">Hands on CIO of Capitec Bank</span>
   </p>
   <p>
@@ -1116,37 +1120,47 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
 </script>
 
 <script>
-// Matrix rain — first load only (per session)
+// Matrix rain — runs every page load
 (function() {
   var overlay = document.getElementById('matrix-overlay');
   var canvas  = document.getElementById('matrix-canvas');
   if (!overlay || !canvas) return;
 
-  if (sessionStorage.getItem('tc_matrix')) {
-    overlay.remove();
-    return;
-  }
-  sessionStorage.setItem('tc_matrix', '1');
-
   var ctx = canvas.getContext('2d');
   var W = canvas.width  = window.innerWidth;
   var H = canvas.height = window.innerHeight;
-  var SIZE = 16;
+  var SIZE = 18;
   var cols = Math.floor(W / SIZE);
+  var CHARS = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789ABCDEF$@#%&';
+  var TRAIL = 24;
   var drops = [];
-  for (var i = 0; i < cols; i++) drops[i] = Math.random() * -(H / SIZE);
+  var history = [];
+  for (var i = 0; i < cols; i++) {
+    drops[i] = Math.random() * -(H / SIZE) * 2;
+    history[i] = [];
+  }
 
   function draw() {
-    ctx.fillStyle = 'rgba(10,13,20,0.18)';
-    ctx.fillRect(0, 0, W, H);
+    ctx.clearRect(0, 0, W, H);
     ctx.font = SIZE + 'px monospace';
     for (var i = 0; i < cols; i++) {
-      var ch = Math.random() > 0.5 ? '1' : '0';
-      // brightest character at drop head, rest fade green
-      ctx.fillStyle = drops[i] > 0 && Math.random() > 0.95 ? '#ffffff' : '#00ff41';
-      ctx.fillText(ch, i * SIZE, drops[i] * SIZE);
-      if (drops[i] * SIZE > H && Math.random() > 0.975) drops[i] = 0;
-      drops[i] += 0.6;
+      if (drops[i] >= 0) {
+        history[i].unshift({ y: Math.floor(drops[i]), ch: CHARS[Math.floor(Math.random() * CHARS.length)] });
+        if (history[i].length > TRAIL) history[i].pop();
+      }
+      for (var j = 0; j < history[i].length; j++) {
+        var alpha = Math.pow(1 - j / TRAIL, 1.5);
+        if (j === 0) {
+          ctx.shadowBlur = 18; ctx.shadowColor = '#00ff41';
+          ctx.fillStyle = 'rgba(220,255,220,' + alpha + ')';
+        } else {
+          ctx.shadowBlur = 6; ctx.shadowColor = '#00ff41';
+          ctx.fillStyle = 'rgba(0,220,50,' + (alpha * 0.85) + ')';
+        }
+        ctx.fillText(history[i][j].ch, i * SIZE, history[i][j].y * SIZE);
+      }
+      drops[i] += 1.2;
+      if (drops[i] * SIZE > H && Math.random() > 0.97) { drops[i] = 0; history[i] = []; }
     }
   }
 

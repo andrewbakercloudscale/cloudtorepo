@@ -68,9 +68,7 @@ done
 # ---------------------------------------------------------------------------
 # Dependency checks
 # ---------------------------------------------------------------------------
-for cmd in terraform; do
-  command -v "$cmd" &>/dev/null || die "Required command not found: $cmd"
-done
+command -v terraform &>/dev/null || die "Required command not found: terraform"
 
 [[ -d "${OUTPUT_DIR}" ]] || die "Output directory not found: ${OUTPUT_DIR}. Run terraclaim.sh first."
 
@@ -196,7 +194,8 @@ _RESULTS_DIR=$(mktemp -d)
 run_dir() {
   local dir="$1"
   local rel="${dir#${OUTPUT_DIR}/}"
-  local tmpresult="${_RESULTS_DIR}/$(echo "${rel}" | tr '/' '_').result"
+  local tmpresult
+  tmpresult="${_RESULTS_DIR}/$(echo "${rel}" | tr '/' '_').result"
   process_dir "${dir}" > "${tmpresult}" 2>&1
 }
 

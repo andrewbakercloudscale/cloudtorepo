@@ -1380,7 +1380,7 @@ for account in "${ACCOUNT_LIST[@]}"; do
     for service in "${SERVICE_LIST[@]}"; do
       service="${service// /}"
       [[ -z "${service}" ]] && continue
-      local _tmp; _tmp=$(mktemp)
+      _tmp=$(mktemp)
       _SVC_TMPFILES["${service}"]="${_tmp}"
       log "  [${service}] scanning..."
       if [[ "${PARALLEL}" -gt 1 ]]; then
@@ -1406,7 +1406,7 @@ for account in "${ACCOUNT_LIST[@]}"; do
 
       # Read LIVE_PAIRS back from the temp file written by the scan phase
       LIVE_PAIRS=()
-      local _tmp="${_SVC_TMPFILES["${service}"]}"
+      _tmp="${_SVC_TMPFILES["${service}"]}"
       if [[ -f "${_tmp}" ]] && [[ -s "${_tmp}" ]]; then
         while IFS= read -r _line; do
           [[ -n "${_line}" ]] && LIVE_PAIRS+=("${_line}")
@@ -1416,13 +1416,11 @@ for account in "${ACCOUNT_LIST[@]}"; do
 
       # Build lookup of live IDs: id -> addr
       declare -A LIVE_IDS=()
-      declare -A LIVE_ADDRS=()
-      local i=0
+      i=0
       while [[ $i -lt ${#LIVE_PAIRS[@]} ]]; do
-        local addr="${LIVE_PAIRS[$i]}"
-        local id="${LIVE_PAIRS[$((i+1))]}"
+        addr="${LIVE_PAIRS[$i]}"
+        id="${LIVE_PAIRS[$((i+1))]}"
         LIVE_IDS["${id}"]="${addr}"
-        LIVE_ADDRS["${addr}"]="${id}"
         i=$((i+2))
       done
 
@@ -1464,7 +1462,7 @@ for account in "${ACCOUNT_LIST[@]}"; do
 
         if [[ ${#new_pairs[@]} -gt 0 ]]; then
           report "  NEW  ($((${#new_pairs[@]}/2)) resource(s) found in AWS, not in imports.tf)"
-          local j=0
+          j=0
           while [[ $j -lt ${#new_pairs[@]} ]]; do
             report "    + ${new_pairs[$j]}  (id: ${new_pairs[$((j+1))]})"
             j=$((j+2))

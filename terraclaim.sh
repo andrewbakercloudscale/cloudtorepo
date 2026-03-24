@@ -22,6 +22,9 @@
 #   --profile   "myprofile"         AWS named profile (overrides AWS_PROFILE env var)
 #   --exclude-services "svc1,svc2"  Comma-separated services to skip
 #   --tags      "Env=prod,Team=sre" Only import resources with these tags (requires Resource Groups Tagging API)
+#   --account-parallel  N           Max concurrent account scans (default: 1, set > 1 for multi-account sweeps)
+#   --output-format "text|json"     Output format for summary file (default: text; json writes summary.json)
+#   --since "YYYY-MM-DD"            Only import resources created/modified on or after this date (best-effort; applies to lambda, ecr, rds)
 #   --resume                        Skip account/region/service combinations already written to the output dir
 #   --dry-run                       Print resource counts; do not write files
 #   --debug                         Verbose logging
@@ -29,6 +32,14 @@
 #   --help                          Show this help
 
 set -euo pipefail
+
+# Bash 4.3+ required: associative arrays (declare -A) and wait -n
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]] || \
+   { [[ "${BASH_VERSINFO[0]}" -eq 4 ]] && [[ "${BASH_VERSINFO[1]}" -lt 3 ]]; }; then
+  echo "[ERROR] Bash 4.3 or later is required (found ${BASH_VERSION})" >&2
+  echo "[ERROR] macOS ships Bash 3.2 — install a newer version: brew install bash" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -44,10 +55,13 @@ STATE_BUCKET=""
 STATE_REGION=""
 OUTPUT_DIR="./tf-output"
 PARALLEL=5
+ACCOUNT_PARALLEL=1
+OUTPUT_FORMAT="text"
+SINCE=""
 RESUME=false
 DRY_RUN=false
 DEBUG=false
-VERSION="1.2.0"
+VERSION="1.3.0"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -63,7 +77,7 @@ slugify() {
 }
 
 usage() {
-  grep '^#' "$0" | sed 's/^# \{0,1\}//'
+  grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'
   exit 0
 }
 
@@ -81,11 +95,14 @@ while [[ $# -gt 0 ]]; do
     --state-region) STATE_REGION="$2"; shift 2 ;;
     --output)       OUTPUT_DIR="$2";   shift 2 ;;
     --parallel)         PARALLEL="$2";          shift 2 ;;
-    --exclude-services) EXCLUDE_SERVICES="$2";  shift 2 ;;
-    --tags)             TAGS="$2";              shift 2 ;;
-    --resume)           RESUME=true;            shift ;;
-    --dry-run)          DRY_RUN=true;           shift ;;
-    --debug)            DEBUG=true;             shift ;;
+    --exclude-services)  EXCLUDE_SERVICES="$2";   shift 2 ;;
+    --tags)              TAGS="$2";               shift 2 ;;
+    --account-parallel)  ACCOUNT_PARALLEL="$2";   shift 2 ;;
+    --output-format)     OUTPUT_FORMAT="$2";      shift 2 ;;
+    --since)             SINCE="$2";              shift 2 ;;
+    --resume)            RESUME=true;             shift ;;
+    --dry-run)           DRY_RUN=true;            shift ;;
+    --debug)             DEBUG=true;              shift ;;
     --version)          echo "terraclaim ${VERSION}"; exit 0 ;;
     --help|-h)          usage ;;
     *) die "Unknown option: $1 — run with --help for usage." ;;
@@ -96,6 +113,9 @@ done
 # Input validation
 # ---------------------------------------------------------------------------
 [[ "${PARALLEL}" =~ ^[1-9][0-9]*$ ]] || die "--parallel must be a positive integer (got: '${PARALLEL}')"
+[[ "${ACCOUNT_PARALLEL}" =~ ^[1-9][0-9]*$ ]] || die "--account-parallel must be a positive integer (got: '${ACCOUNT_PARALLEL}')"
+[[ -z "${OUTPUT_FORMAT}" || "${OUTPUT_FORMAT}" =~ ^(text|json)$ ]] || die "--output-format must be 'text' or 'json' (got: '${OUTPUT_FORMAT}')"
+[[ -z "${SINCE}" || "${SINCE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "--since must be in YYYY-MM-DD format (got: '${SINCE}')"
 [[ -n "${PROFILE}" ]] && export AWS_PROFILE="${PROFILE}"
 
 # ---------------------------------------------------------------------------
@@ -210,7 +230,7 @@ checkpoint_done() {
 
 checkpoint_mark() {
   local account="$1" region="$2" service="$3"
-  "${RESUME}" || return
+  "${RESUME}" || return 0
   [[ -z "${CHECKPOINT_FILE}" ]] && return
   echo "${account}/${region}/${service}" >> "${CHECKPOINT_FILE}"
 }
@@ -371,6 +391,7 @@ export_ec2() {
   log "  [ec2] listing instances..."
   while IFS=$'\t' read -r instance_id name_tag; do
     [[ -z "${instance_id}" ]] && continue
+    tag_match "${instance_id}" || continue
     local slug; slug=$(slugify "${name_tag:-${instance_id}}")
     imports+=("aws_instance.${slug}" "${instance_id}")
     types+=("aws_instance.${slug}")
@@ -395,6 +416,7 @@ export_ebs() {
   log "  [ebs] listing volumes..."
   while IFS=$'\t' read -r vol_id name_tag; do
     [[ -z "${vol_id}" ]] && continue
+    tag_match "${vol_id}" || continue
     local slug; slug=$(slugify "${name_tag:-${vol_id}}")
     imports+=("aws_ebs_volume.${slug}" "${vol_id}")
     types+=("aws_ebs_volume.${slug}")
@@ -446,6 +468,7 @@ export_s3() {
 
   while IFS=$'\t' read -r bucket loc; do
     [[ "${loc}" != "${region}" ]] && continue
+    tag_match "${bucket}" || continue
     local slug; slug=$(slugify "${bucket}")
     imports+=("aws_s3_bucket.${slug}" "${bucket}")
     types+=("aws_s3_bucket.${slug}")
@@ -553,6 +576,7 @@ export_eks() {
     --output text 2>/dev/null || true)
 
   for cluster in ${clusters}; do
+    tag_match "${cluster}" || continue
     local slug; slug=$(slugify "${cluster}")
     imports+=("aws_eks_cluster.cluster_${slug}" "${cluster}")
     types+=("aws_eks_cluster.cluster_${slug}")
@@ -609,6 +633,7 @@ export_ecs() {
   log "  [ecs] listing clusters..."
   while read -r cluster_arn; do
     [[ -z "${cluster_arn}" ]] && continue
+    tag_match "${cluster_arn}" || continue
     local cluster_name; cluster_name=$(basename "${cluster_arn}")
     local slug; slug=$(slugify "${cluster_name}")
     imports+=("aws_ecs_cluster.${slug}" "${cluster_name}")
@@ -645,8 +670,10 @@ export_lambda() {
   local pkg_dir="${path}/_packages"
   local imports=() types=()
   log "  [lambda] listing functions..."
-  while read -r fn_name; do
+  while IFS=$'\t' read -r fn_name last_modified; do
     [[ -z "${fn_name}" ]] && continue
+    tag_match "${fn_name}" || continue
+    [[ -n "${SINCE}" && "${last_modified:0:10}" < "${SINCE}" ]] && continue
     local slug; slug=$(slugify "${fn_name}")
     imports+=("aws_lambda_function.${slug}" "${fn_name}")
     types+=("aws_lambda_function.${slug}")
@@ -667,8 +694,8 @@ export_lambda() {
     fi
   done < <(aws lambda list-functions \
     --region "${region}" \
-    --query 'Functions[].FunctionName' \
-    --output text 2>/dev/null | tr '\t' '\n' || true)
+    --query 'Functions[].[FunctionName, LastModified]' \
+    --output text 2>/dev/null || true)
 
   [[ ${#imports[@]} -eq 0 ]] && { debug "  [lambda] no functions found"; return; }
   log "  [lambda] found $((${#imports[@]}/2)) functions"
@@ -685,19 +712,22 @@ export_rds() {
   log "  [rds] listing instances and clusters..."
 
   # RDS instances
-  while read -r db_id; do
+  while IFS=$'\t' read -r db_id create_time; do
     [[ -z "${db_id}" ]] && continue
+    tag_match "${db_id}" || continue
+    [[ -n "${SINCE}" && "${create_time:0:10}" < "${SINCE}" ]] && continue
     local slug; slug=$(slugify "${db_id}")
     imports+=("aws_db_instance.${slug}" "${db_id}")
     types+=("aws_db_instance.${slug}")
   done < <(aws rds describe-db-instances \
     --region "${region}" \
-    --query 'DBInstances[].DBInstanceIdentifier' \
-    --output text 2>/dev/null | tr '\t' '\n' || true)
+    --query 'DBInstances[].[DBInstanceIdentifier, InstanceCreateTime]' \
+    --output text 2>/dev/null || true)
 
   # Aurora clusters
   while read -r cluster_id; do
     [[ -z "${cluster_id}" ]] && continue
+    tag_match "${cluster_id}" || continue
     local slug; slug=$(slugify "${cluster_id}")
     imports+=("aws_rds_cluster.${slug}" "${cluster_id}")
     types+=("aws_rds_cluster.${slug}")
@@ -721,6 +751,7 @@ export_dynamodb() {
   log "  [dynamodb] listing tables..."
   while read -r table; do
     [[ -z "${table}" ]] && continue
+    tag_match "${table}" || continue
     local slug; slug=$(slugify "${table}")
     imports+=("aws_dynamodb_table.${slug}" "${table}")
     types+=("aws_dynamodb_table.${slug}")
@@ -838,6 +869,7 @@ export_elb() {
   log "  [elb] listing load balancers..."
   while IFS=$'\t' read -r lb_arn lb_name; do
     [[ -z "${lb_arn}" ]] && continue
+    tag_match "${lb_arn}" || continue
     local slug; slug=$(slugify "${lb_name}")
     imports+=("aws_lb.${slug}" "${lb_arn}")
     types+=("aws_lb.${slug}")
@@ -1002,6 +1034,7 @@ export_secretsmanager() {
   log "  [secretsmanager] listing secrets..."
   while IFS=$'\t' read -r secret_arn secret_name; do
     [[ -z "${secret_arn}" ]] && continue
+    tag_match "${secret_arn}" || continue
     local slug; slug=$(slugify "${secret_name}")
     imports+=("aws_secretsmanager_secret.${slug}" "${secret_arn}")
     types+=("aws_secretsmanager_secret.${slug}")
@@ -1082,6 +1115,7 @@ export_cloudwatch() {
   log "  [cloudwatch] listing log groups..."
   while read -r lg_name; do
     [[ -z "${lg_name}" ]] && continue
+    tag_match "${lg_name}" || continue
     local slug; slug=$(slugify "${lg_name}")
     imports+=("aws_cloudwatch_log_group.${slug}" "${lg_name}")
     types+=("aws_cloudwatch_log_group.${slug}")
@@ -1155,15 +1189,17 @@ export_ecr() {
   local account="$1" region="$2" path="$3"
   local imports=() types=()
   log "  [ecr] listing repositories..."
-  while read -r repo_name; do
+  while IFS=$'\t' read -r repo_name created_at; do
     [[ -z "${repo_name}" ]] && continue
+    tag_match "${repo_name}" || continue
+    [[ -n "${SINCE}" && "${created_at:0:10}" < "${SINCE}" ]] && continue
     local slug; slug=$(slugify "${repo_name}")
     imports+=("aws_ecr_repository.${slug}" "${repo_name}")
     types+=("aws_ecr_repository.${slug}")
   done < <(aws ecr describe-repositories \
     --region "${region}" \
-    --query 'repositories[].repositoryName' \
-    --output text 2>/dev/null | tr '\t' '\n' || true)
+    --query 'repositories[].[repositoryName, createdAt]' \
+    --output text 2>/dev/null || true)
 
   # Lifecycle policies are separate resources
   for i in $(seq 0 2 $((${#imports[@]}-2))); do
@@ -1538,9 +1574,9 @@ export_cognito() {
       # User pool clients
       while IFS=$'\t' read -r client_id client_name; do
         [[ -z "${client_id}" ]] && continue
-        local csluq; csluq=$(slugify "${client_name:-${client_id}}")
-        imports+=("aws_cognito_user_pool_client.${csluq}" "${pool_id}/${client_id}")
-        types+=("aws_cognito_user_pool_client.${csluq}")
+        local cslug; cslug=$(slugify "${client_name:-${client_id}}")
+        imports+=("aws_cognito_user_pool_client.${cslug}" "${pool_id}/${client_id}")
+        types+=("aws_cognito_user_pool_client.${cslug}")
       done < <(aws cognito-idp list-user-pool-clients \
         --user-pool-id "${pool_id}" \
         --region "${region}" \
@@ -2263,37 +2299,10 @@ dispatch_service() {
 }
 
 # ---------------------------------------------------------------------------
-# Main loop
+# Per-account runner — extracted so it can be backgrounded for --account-parallel
 # ---------------------------------------------------------------------------
-# Temp file receives auth/permission warnings from the aws() wrapper even
-# when call sites use 2>/dev/null; flushed after each region sweep.
-_AWS_WARN_FILE=$(mktemp)
-trap 'rm -f "${_AWS_WARN_FILE}" 2>/dev/null' EXIT INT TERM
-
-TOTAL_IMPORTS=0
-SUMMARY_FILE="${OUTPUT_DIR}/summary.txt"
-
-if ! "${DRY_RUN}"; then
-  mkdir -p "${OUTPUT_DIR}"
-  {
-    echo "terraclaim summary"
-    echo "Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-    echo "Accounts:  ${ACCOUNTS}"
-    echo "Regions:   ${REGIONS}"
-    echo "Services:  ${SERVICES}"
-    echo "---"
-  } > "${SUMMARY_FILE}"
-fi
-
-if "${RESUME}"; then
-  CHECKPOINT_FILE="${OUTPUT_DIR}/.terraclaim-checkpoint"
-  touch "${CHECKPOINT_FILE}"
-  log "Resume mode enabled — checkpoint: ${CHECKPOINT_FILE}"
-fi
-
-for account in "${ACCOUNT_LIST[@]}"; do
-  account="${account// /}"
-  [[ -z "${account}" ]] && continue
+_run_account() {
+  local account="$1"
   log "Account: ${account}"
 
   if [[ -n "${ROLE_NAME}" ]]; then
@@ -2305,7 +2314,7 @@ for account in "${ACCOUNT_LIST[@]}"; do
     [[ -z "${region}" ]] && continue
     log " Region: ${region}"
 
-    base_path="${OUTPUT_DIR}/${account}"
+    local base_path="${OUTPUT_DIR}/${account}"
 
     # Load tag filter for this region (no-op if --tags not set)
     load_tag_filter "${region}"
@@ -2337,7 +2346,7 @@ for account in "${ACCOUNT_LIST[@]}"; do
       fi
     done
     # Wait for all background service scans in this region to complete
-    [[ "${PARALLEL}" -gt 1 ]] && wait
+    if [[ "${PARALLEL}" -gt 1 ]]; then wait; fi
     # Surface any auth/permission errors collected during this region sweep
     flush_aws_warnings
   done
@@ -2345,17 +2354,108 @@ for account in "${ACCOUNT_LIST[@]}"; do
   if [[ -n "${ROLE_NAME}" ]]; then
     restore_credentials
   fi
+}
+
+# ---------------------------------------------------------------------------
+# JSON summary writer
+# ---------------------------------------------------------------------------
+generate_json_summary() {
+  local out_file="${OUTPUT_DIR}/summary.json"
+  local gen; gen=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+  # Build a newline-delimited stream of "acct\treg\tsvc\tcount" records,
+  # then feed them all to a single jq --rawfile pass — avoids O(n) subprocesses.
+  local _records=""
+  for account_dir in "${OUTPUT_DIR}"/*/; do
+    [[ -d "${account_dir}" ]] || continue
+    local acct; acct=$(basename "${account_dir}")
+    for region_dir in "${account_dir}"*/; do
+      [[ -d "${region_dir}" ]] || continue
+      local reg; reg=$(basename "${region_dir}")
+      for svc_dir in "${region_dir}"*/; do
+        [[ -d "${svc_dir}" ]] || continue
+        local svc; svc=$(basename "${svc_dir}")
+        [[ "${svc}" == "_packages" ]] && continue
+        local count=0
+        [[ -f "${svc_dir}/imports.tf" ]] && \
+          count=$(grep -c '^import {' "${svc_dir}/imports.tf" 2>/dev/null || echo 0)
+        _records+="${acct}"$'\t'"${reg}"$'\t'"${svc}"$'\t'"${count}"$'\n'
+      done
+    done
+  done
+
+  jq -n \
+    --arg gen      "${gen}" \
+    --argjson total "${TOTAL_IMPORTS}" \
+    --argjson accounts "$(printf '%s\n' "${ACCOUNT_LIST[@]}" | jq -R . | jq -s .)" \
+    --argjson regions  "$(printf '%s\n' "${REGION_LIST[@]}"  | jq -R . | jq -s .)" \
+    --argjson services "$(printf '%s\n' "${SERVICE_LIST[@]}" | jq -R . | jq -s .)" \
+    --arg records  "${_records}" \
+    '{generated: $gen, total_imports: $total, accounts: $accounts, regions: $regions, services: $services,
+      by_account: (
+        $records | split("\n") | map(select(length > 0)) |
+        reduce .[] as $row ({};
+          ($row | split("\t")) as $f |
+          .[$f[0]] //= {} | .[$f[0]][$f[1]] //= {} | .[$f[0]][$f[1]][$f[2]] = ($f[3] | tonumber)
+        )
+      )}' > "${out_file}"
+
+  log "JSON summary: ${out_file}"
+}
+
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
+# Temp file receives auth/permission warnings from the aws() wrapper even
+# when call sites use 2>/dev/null; flushed after each region sweep.
+_AWS_WARN_FILE=$(mktemp)
+trap 'rm -f "${_AWS_WARN_FILE}" 2>/dev/null' EXIT INT TERM
+
+TOTAL_IMPORTS=0
+SUMMARY_FILE="${OUTPUT_DIR}/summary.txt"
+
+if ! "${DRY_RUN}"; then
+  mkdir -p "${OUTPUT_DIR}"
+  {
+    echo "terraclaim summary"
+    echo "Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    echo "Accounts:  ${ACCOUNTS}"
+    echo "Regions:   ${REGIONS}"
+    echo "Services:  ${SERVICES}"
+    echo "---"
+  } > "${SUMMARY_FILE}"
+fi
+
+if "${RESUME}"; then
+  CHECKPOINT_FILE="${OUTPUT_DIR}/.terraclaim-checkpoint"
+  touch "${CHECKPOINT_FILE}"
+  log "Resume mode enabled — checkpoint: ${CHECKPOINT_FILE}"
+fi
+
+for account in "${ACCOUNT_LIST[@]}"; do
+  account="${account// /}"
+  [[ -z "${account}" ]] && continue
+  if [[ "${ACCOUNT_PARALLEL}" -gt 1 ]]; then
+    while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${ACCOUNT_PARALLEL}" ]]; do
+      wait -n 2>/dev/null || true
+    done
+    ( _run_account "${account}" ) &
+  else
+    _run_account "${account}"
+  fi
 done
+if [[ "${ACCOUNT_PARALLEL}" -gt 1 ]]; then wait; fi
 
 if ! "${DRY_RUN}"; then
   # Count total import blocks across all generated files
-  TOTAL_IMPORTS=$(grep -r '^import {' "${OUTPUT_DIR}" 2>/dev/null | wc -l | tr -d ' ')
+  TOTAL_IMPORTS=$(grep -r '^import {' "${OUTPUT_DIR}" 2>/dev/null | wc -l | tr -d ' ') || true
   echo "Total import blocks written: ${TOTAL_IMPORTS}" >> "${SUMMARY_FILE}"
+  if [[ "${OUTPUT_FORMAT}" == "json" ]]; then generate_json_summary; fi
   log "Done. Total import blocks: ${TOTAL_IMPORTS}"
   log "Output: ${OUTPUT_DIR}"
   log "Summary: ${SUMMARY_FILE}"
   # Clear checkpoint on successful completion
-  [[ -n "${CHECKPOINT_FILE}" ]] && rm -f "${CHECKPOINT_FILE}"
+  if [[ -n "${CHECKPOINT_FILE}" ]]; then rm -f "${CHECKPOINT_FILE}"; fi
   log ""
   log "Next steps:"
   log "  1. For each service directory, run: terraform init"

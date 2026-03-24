@@ -109,7 +109,6 @@
       text-align: center;
       padding: 6rem 2rem 4rem;
       position: relative;
-      overflow: hidden;
     }
 
     .hero::before {
@@ -144,6 +143,27 @@
       padding: 0.3rem 0.8rem;
       border-radius: 99px;
       margin-bottom: 1.5rem;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+      cursor: default;
+      will-change: transform;
+    }
+
+    .badge:hover {
+      border-color: var(--accent);
+      background: rgba(124, 106, 247, 0.2);
+      transform: translateY(-6px) scale(1.02);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px var(--accent), 0 8px 32px rgba(124,106,247,0.2);
+    }
+
+    .hero-logo {
+      transition: transform 0.2s ease, filter 0.2s ease;
+      will-change: transform;
+      cursor: pointer;
+    }
+
+    .hero-logo:hover {
+      transform: translateY(-6px) scale(1.02);
+      filter: drop-shadow(0 0 36px rgba(124,106,247,0.6)) !important;
     }
 
     .badge::before {
@@ -225,6 +245,8 @@
       border: 1px solid var(--border);
       box-shadow: 0 24px 80px rgba(0,0,0,0.5);
       transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+      will-change: transform;
+      cursor: pointer;
     }
 
     .terminal-wrap:hover {
@@ -573,6 +595,11 @@
 </head>
 <body>
 
+<!-- MATRIX RAIN OVERLAY -->
+<div id="matrix-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:9998;opacity:1;transition:opacity 1s ease;pointer-events:none;">
+  <canvas id="matrix-canvas" style="display:block;width:100%;height:100%;"></canvas>
+</div>
+
 <!-- NAV -->
 <nav>
   <a class="nav-logo" href="#"><span>terra</span>claim</a>
@@ -592,7 +619,7 @@
 
 <!-- HERO -->
 <section class="hero">
-  <img src="terraclaim.jpg" alt="Terraclaim" style="width:120px;height:120px;object-fit:contain;margin-bottom:1.5rem;filter:drop-shadow(0 0 24px rgba(124,106,247,0.4));" />
+  <img src="terraclaim.jpg" alt="Terraclaim" class="hero-logo" style="width:120px;height:120px;object-fit:contain;margin-bottom:1.5rem;filter:drop-shadow(0 0 24px rgba(124,106,247,0.4));" />
   <div class="badge">Open Source &mdash; MIT License</div>
   <h1>Claim your AWS estate<br>as <span class="gradient">Terraform</span></h1>
   <p class="hero-sub">
@@ -1086,6 +1113,56 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
       });
     });
   });
+</script>
+
+<script>
+// Matrix rain — first load only (per session)
+(function() {
+  var overlay = document.getElementById('matrix-overlay');
+  var canvas  = document.getElementById('matrix-canvas');
+  if (!overlay || !canvas) return;
+
+  if (sessionStorage.getItem('tc_matrix')) {
+    overlay.remove();
+    return;
+  }
+  sessionStorage.setItem('tc_matrix', '1');
+
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width  = window.innerWidth;
+  var H = canvas.height = window.innerHeight;
+  var SIZE = 16;
+  var cols = Math.floor(W / SIZE);
+  var drops = [];
+  for (var i = 0; i < cols; i++) drops[i] = Math.random() * -(H / SIZE);
+
+  function draw() {
+    ctx.fillStyle = 'rgba(10,13,20,0.18)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.font = SIZE + 'px monospace';
+    for (var i = 0; i < cols; i++) {
+      var ch = Math.random() > 0.5 ? '1' : '0';
+      // brightest character at drop head, rest fade green
+      ctx.fillStyle = drops[i] > 0 && Math.random() > 0.95 ? '#ffffff' : '#00ff41';
+      ctx.fillText(ch, i * SIZE, drops[i] * SIZE);
+      if (drops[i] * SIZE > H && Math.random() > 0.975) drops[i] = 0;
+      drops[i] += 0.6;
+    }
+  }
+
+  var raf;
+  function loop() { draw(); raf = requestAnimationFrame(loop); }
+  loop();
+
+  // Fade out after 2.5 s, remove after fade
+  setTimeout(function() {
+    overlay.style.opacity = '0';
+    setTimeout(function() {
+      cancelAnimationFrame(raf);
+      overlay.remove();
+    }, 1000);
+  }, 2500);
+})();
 </script>
 </body>
 </html>

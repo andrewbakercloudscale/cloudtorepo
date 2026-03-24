@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.0] — 2026-03-24
+
+### Added
+- `--account-parallel N` flag — scan multiple accounts concurrently. The outer
+  account loop is now extracted into `_run_account()` and can be backgrounded;
+  default is 1 (sequential) to preserve existing behaviour.
+- `--output-format json` flag — after a run, writes `summary.json` alongside
+  `summary.txt` with a structured breakdown of import counts by account, region,
+  and service (populated by scanning the output tree via `jq`).
+- `--since YYYY-MM-DD` flag — best-effort date filter applied to Lambda
+  (`LastModified`), ECR (`createdAt`), and RDS instances (`InstanceCreateTime`);
+  resources older than the cutoff are skipped.
+- `tag_match()` is now wired into all 12 major exporters: `ec2`, `ebs`, `s3`,
+  `lambda`, `rds` (instances + Aurora clusters), `dynamodb`, `elb`, `ecr`,
+  `cloudwatch`, `secretsmanager`, `eks` (cluster), `ecs` (cluster). Previously
+  only the newer service exporters (`apprunner`, `memorydb`, `lightsail`) used it.
+- `.github/workflows/drift-check.yml` — GitHub Actions workflow that runs
+  `drift.sh` on a nightly schedule (06:00 UTC) and on `workflow_dispatch`. Opens
+  a GitHub issue when new or removed resources are detected; uploads the drift
+  report as an artifact.
+- `index.html` terminal demo box now lifts on hover (matching the service card
+  and step card hover animations).
+
+---
+
 ## [1.2.0] — 2026-03-24
 
 ### Added

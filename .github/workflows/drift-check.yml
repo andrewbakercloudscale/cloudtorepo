@@ -1,0 +1,112 @@
+name: Drift Check
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # 06:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: 'Comma-separated regions to scan'
+        required: false
+        default: 'us-east-1'
+      services:
+        description: 'Comma-separated services (blank = all)'
+        required: false
+        default: ''
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write    # OIDC token for AWS role assumption
+      contents: read
+      issues: write      # open an issue when drift is detected
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ github.event.inputs.regions || 'us-east-1' }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y jq unzip
+          TF_VERSION="1.7.5"
+          curl -fsSL \
+            "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" \
+            -o terraform.zip
+          unzip -q terraform.zip && sudo mv terraform /usr/local/bin/
+          rm terraform.zip
+
+      - name: Run drift detection
+        id: drift
+        run: |
+          EXTRA_ARGS=""
+          [[ -n "${{ github.event.inputs.services }}" ]] && \
+            EXTRA_ARGS="--services ${{ github.event.inputs.services }}"
+
+          bash ./drift.sh \
+            --output ./tf-output \
+            --regions "${{ github.event.inputs.regions || 'us-east-1' }}" \
+            --report ./drift-report.txt \
+            ${EXTRA_ARGS} || true
+
+          NEW=0; REMOVED=0
+          if [[ -f ./drift-report.txt ]]; then
+            NEW=$(grep -E '^\s*New \(not yet imported\):' ./drift-report.txt \
+                  | awk '{print $NF}' | tr -d ' ' || echo 0)
+            REMOVED=$(grep -E '^\s*Removed \(stale\):' ./drift-report.txt \
+                      | awk '{print $NF}' | tr -d ' ' || echo 0)
+          fi
+          echo "new=${NEW:-0}"     >> "$GITHUB_OUTPUT"
+          echo "removed=${REMOVED:-0}" >> "$GITHUB_OUTPUT"
+
+      - name: Open issue on drift detected
+        if: steps.drift.outputs.new != '0' || steps.drift.outputs.removed != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.existsSync('./drift-report.txt')
+              ? fs.readFileSync('./drift-report.txt', 'utf8')
+              : '(no report generated)';
+            const newCount     = '${{ steps.drift.outputs.new }}';
+            const removedCount = '${{ steps.drift.outputs.removed }}';
+            const title = `Drift detected: ${newCount} new, ${removedCount} removed — ${new Date().toISOString().slice(0,10)}`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              labels: 'drift',
+              state: 'open',
+            });
+            // Avoid duplicate open issues for the same day
+            const today = new Date().toISOString().slice(0, 10);
+            if (!issues.some(i => i.title.includes(today))) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                title,
+                body: [
+                  '## Drift summary',
+                  '',
+                  '```',
+                  report,
+                  '```',
+                  '',
+                  '**To apply:** `./drift.sh --output ./tf-output --apply`',
+                ].join('\n'),
+                labels: ['drift', 'terraform'],
+              });
+            }
+
+      - name: Upload drift report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report-${{ github.run_id }}
+          path: drift-report.txt
+          retention-days: 30
+          if-no-files-found: ignore

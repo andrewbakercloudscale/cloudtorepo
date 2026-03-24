@@ -78,6 +78,16 @@ chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
   --debug
 ```
 
+### 4. Named AWS profile
+
+```bash
+./terraclaim.sh \
+  --profile prod-readonly \
+  --regions "eu-west-1" \
+  --services "ec2,vpc,rds,eks" \
+  --output ./tf-output
+```
+
 ---
 
 ## Options
@@ -87,6 +97,7 @@ chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
 | `--accounts` | Comma-separated account IDs | Current account |
 | `--regions` | Comma-separated regions | `us-east-1` |
 | `--services` | Comma-separated services (see below) | All supported services |
+| `--profile` | AWS named profile (`AWS_PROFILE`) | — |
 | `--role` | IAM role name to assume in each account | — |
 | `--state-bucket` | S3 bucket for remote state `backend "s3"` | — (local state) |
 | `--state-region` | Region of the state S3 bucket | Same as resource region |
@@ -105,14 +116,14 @@ chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
 
 | Category | Services |
 |----------|---------|
-| Compute | `ec2`, `ebs`, `ecs`, `eks`, `lambda` |
-| Networking | `vpc`, `elb`, `cloudfront`, `route53`, `acm`, `transitgateway`, `vpcendpoints` |
+| Compute | `ec2`, `ebs`, `ecs`, `eks` (clusters, node groups, addons, Fargate profiles), `lambda` |
+| Networking | `vpc` (VPCs, subnets, security groups, route tables, IGWs, NAT gateways), `elb`, `cloudfront`, `route53`, `acm`, `transitgateway`, `vpcendpoints` |
 | Data | `rds`, `dynamodb`, `elasticache`, `msk`, `s3`, `efs`, `opensearch`, `redshift`, `documentdb` |
 | Streaming | `kinesis` (Data Streams + Firehose) |
 | Integration | `sqs`, `sns`, `apigateway`, `eventbridge`, `stepfunctions`, `ses` |
-| Security & Compliance | `iam`, `kms`, `secretsmanager`, `wafv2`, `config`, `cloudtrail`, `guardduty` |
+| Security & Compliance | `iam` (roles, instance profiles, OIDC providers), `kms`, `secretsmanager`, `wafv2`, `config`, `cloudtrail`, `guardduty` |
 | Platform | `ecr`, `ssm`, `cloudwatch`, `backup`, `codepipeline`, `codebuild` |
-| Auth | `cognito` (user pools + identity pools) |
+| Auth | `cognito` (user pools, clients, identity pools — fully paginated) |
 | ETL | `glue` (jobs, crawlers, databases, connections) |
 | Storage | `fsx` (Windows, Lustre, ONTAP, OpenZFS), `transfer` (SFTP/FTPS servers + users) |
 | App Platform | `elasticbeanstalk`, `apprunner`, `lightsail` |
@@ -293,6 +304,7 @@ Run with --apply to update imports.tf files automatically.
 | `--accounts` | Comma-separated account IDs | Current account |
 | `--regions` | Comma-separated regions | `us-east-1` |
 | `--services` | Comma-separated services | All supported services |
+| `--profile` | AWS named profile (`AWS_PROFILE`) | — |
 | `--role` | IAM role to assume in each account | — |
 | `--apply` | Update `imports.tf` in place | `false` |
 | `--report` | Write report to file in addition to stdout | — |
@@ -321,12 +333,49 @@ Run with --apply to update imports.tf files automatically.
 The principal running the script needs read-only access to each service.
 A minimum policy should include actions such as:
 
-- `ec2:Describe*`, `eks:List*`, `eks:Describe*`, `rds:Describe*`
+- `ec2:Describe*` — instances, volumes, VPCs, subnets, security groups, route tables, IGWs, NAT gateways
+- `eks:List*`, `eks:Describe*` — clusters, node groups, addons, Fargate profiles
+- `rds:Describe*`, `docdb:Describe*`
 - `s3:ListAllMyBuckets`, `s3:GetBucketLocation`
 - `lambda:ListFunctions`, `lambda:GetFunction`
-- `iam:ListRoles`, `iam:ListUsers`
+- `iam:ListRoles`, `iam:ListInstanceProfiles`, `iam:ListOpenIDConnectProviders`
+- `cognito-idp:ListUserPools`, `cognito-idp:ListUserPoolClients`
+- `cognito-identity:ListIdentityPools`
 - `resource-explorer-2:Search`, `resource-explorer-2:GetIndex` (for `reconcile.sh`)
 - `sts:AssumeRole` (for multi-account sweeps)
+- `resourcegroupstaggingapi:GetResources` (for `--tags` filtering)
+
+---
+
+## Testing
+
+The `tests/` directory contains a [bats-core](https://bats-core.readthedocs.io/) test suite
+that exercises `terraclaim.sh` and `drift.sh` using a mock AWS CLI — no real AWS credentials
+or account needed.
+
+**Install bats-core:**
+
+```bash
+# macOS
+brew install bats-core
+
+# Linux / CI
+git clone https://github.com/bats-core/bats-core.git
+sudo bats-core/install.sh /usr/local
+```
+
+**Run tests:**
+
+```bash
+bats tests/terraclaim.bats
+bats tests/drift.bats
+
+# Run both
+bats tests/
+```
+
+The mock AWS CLI (`tests/helpers/mock_aws.bash`) intercepts every `aws` subcommand and
+returns fixture data set per-test via `mock_response`. Real `jq` is required.
 
 ---
 

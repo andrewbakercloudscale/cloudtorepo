@@ -23,7 +23,11 @@ significantly speeds up implementation.
    ```bash
    shellcheck terraclaim.sh drift.sh reconcile.sh examples/*.sh
    ```
-4. Open a pull request with a clear description of the change and why it is
+4. Run the bats test suite (requires `bats-core` — `brew install bats-core`):
+   ```bash
+   bats tests/
+   ```
+5. Open a pull request with a clear description of the change and why it is
    needed.
 
 ---
@@ -43,8 +47,37 @@ Each service is implemented as a single `export_<service>()` function in
 6. **Add a matching `scan_<service>()` function in `drift.sh`** — same AWS CLI
    calls but populating `LIVE_PAIRS` only (no file I/O). Register it in
    `scan_service` and add to the `SERVICES` default in `drift.sh`.
-7. **Document** the service in the README supported-services table and the
+7. **Add bats tests** in `tests/terraclaim.bats` — at minimum one test that
+   mocks the AWS response and asserts the expected resource type appears in
+   `imports.tf`.
+8. **Document** the service in the README supported-services table and the
    services grid in `index.html`, then run `./sync.sh` to deploy the site.
+
+### Services that require manual pagination
+
+Some AWS CLI commands do not support AWS CLI's built-in auto-pagination and
+require `--max-results` as a mandatory parameter (maximum 60). For these,
+use a `NextToken` loop instead of a plain `while read` pipeline:
+
+```bash
+local _token="" _out
+while true; do
+  local _args=("myservice" "list-resources" "--max-results" "60" "--region" "${region}" "--output" "json")
+  [[ -n "${_token}" ]] && _args+=("--next-token" "${_token}")
+  _out=$(aws "${_args[@]}" 2>/dev/null) || break
+  while IFS=$'\t' read -r id name; do
+    [[ -z "${id}" ]] && continue
+    local slug; slug=$(slugify "${name:-${id}}")
+    imports+=("aws_myservice_resource.${slug}" "${id}")
+    types+=("aws_myservice_resource.${slug}")
+  done < <(echo "${_out}" | jq -r '.Resources[]? | "\(.Id)\t\(.Name)"' 2>/dev/null || true)
+  _token=$(echo "${_out}" | jq -r '.NextToken // empty' 2>/dev/null) || true
+  [[ -z "${_token}" ]] && break
+done
+```
+
+Known services that require this pattern: `cognito-idp list-user-pools`,
+`cognito-identity list-identity-pools`.
 
 ### Minimal example skeleton
 

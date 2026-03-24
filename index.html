@@ -714,12 +714,14 @@
       <div class="tags">
         <span class="tag">ec2</span><span class="tag">ebs</span><span class="tag">ecs</span><span class="tag">eks</span><span class="tag">lambda</span>
       </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">EKS includes clusters, node groups, addons, and Fargate profiles.</p>
     </div>
     <div class="service-card">
       <h3>Networking</h3>
       <div class="tags">
         <span class="tag">vpc</span><span class="tag">elb</span><span class="tag">cloudfront</span><span class="tag">route53</span><span class="tag">acm</span><span class="tag">transitgateway</span><span class="tag">vpcendpoints</span>
       </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">VPC includes subnets, security groups, route tables, internet gateways, and NAT gateways.</p>
     </div>
     <div class="service-card">
       <h3>Data</h3>
@@ -744,6 +746,7 @@
       <div class="tags">
         <span class="tag">iam</span><span class="tag">kms</span><span class="tag">secretsmanager</span><span class="tag">wafv2</span><span class="tag">config</span><span class="tag">cloudtrail</span><span class="tag">guardduty</span>
       </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">IAM includes roles, instance profiles, and OIDC providers.</p>
     </div>
     <div class="service-card">
       <h3>Platform &amp; CI/CD</h3>
@@ -756,6 +759,7 @@
       <div class="tags">
         <span class="tag">cognito</span>
       </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">User pools, clients, and identity pools — fully paginated beyond the 60-pool API limit.</p>
     </div>
     <div class="service-card">
       <h3>ETL &amp; Analytics</h3>
@@ -988,6 +992,18 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
     <div class="qs-step">
       <div class="qs-num">4</div>
       <div class="qs-content">
+        <h3>Named AWS profile (optional)</h3>
+        <pre>./terraclaim.sh \
+  --profile prod-readonly \
+  --regions "eu-west-1" \
+  --services "ec2,vpc,rds,eks" \
+  --output ./tf-output</pre>
+        <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">Pass any named profile from <code>~/.aws/config</code>. Works alongside <code>--role</code> for cross-account sweeps — the profile authenticates the base caller, the role is assumed per account.</p>
+      </div>
+    </div>
+    <div class="qs-step">
+      <div class="qs-num">5</div>
+      <div class="qs-content">
         <h3>Filter by tags (optional)</h3>
         <pre>./terraclaim.sh \
   --regions "us-east-1" \
@@ -997,7 +1013,7 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
       </div>
     </div>
     <div class="qs-step">
-      <div class="qs-num">5</div>
+      <div class="qs-num">6</div>
       <div class="qs-content">
         <h3>Resume a partial scan (optional)</h3>
         <pre>./terraclaim.sh \
@@ -1008,7 +1024,7 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
       </div>
     </div>
     <div class="qs-step">
-      <div class="qs-num">6</div>
+      <div class="qs-num">7</div>
       <div class="qs-content">
         <h3>Populate all service directories at once</h3>
         <pre>./run.sh --output ./tf-output</pre>

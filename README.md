@@ -93,6 +93,8 @@ chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
 | `--output` | Root output directory | `./tf-output` |
 | `--parallel` | Max concurrent service scans | `5` |
 | `--exclude-services` | Comma-separated services to skip | — |
+| `--tags` | Only import resources with these tags e.g. `"Env=prod,Team=sre"` | — |
+| `--resume` | Skip account/region/service combos already written | `false` |
 | `--dry-run` | Print resource counts; do not write files | `false` |
 | `--debug` | Verbose logging | `false` |
 | `--version` | Print version and exit | — |
@@ -113,6 +115,9 @@ chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
 | Auth | `cognito` (user pools + identity pools) |
 | ETL | `glue` (jobs, crawlers, databases, connections) |
 | Storage | `fsx` (Windows, Lustre, ONTAP, OpenZFS), `transfer` (SFTP/FTPS servers + users) |
+| App Platform | `elasticbeanstalk`, `apprunner`, `lightsail` |
+| Analytics | `athena` (workgroups + data catalogs), `lakeformation`, `memorydb` |
+| Governance | `servicecatalog` (portfolios + products) |
 
 ---
 

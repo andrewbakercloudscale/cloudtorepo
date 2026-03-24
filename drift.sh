@@ -36,8 +36,9 @@ set -euo pipefail
 OUTPUT_DIR="./tf-output"
 ACCOUNTS=""
 REGIONS="us-east-1"
-SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch,kinesis,cognito,cloudtrail,guardduty,backup,redshift,glue,ses,codepipeline,codebuild,documentdb,fsx,transfer"
+SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch,kinesis,cognito,cloudtrail,guardduty,backup,redshift,glue,ses,codepipeline,codebuild,documentdb,fsx,transfer,elasticbeanstalk,apprunner,memorydb,athena,lakeformation,servicecatalog,lightsail"
 EXCLUDE_SERVICES=""
+TAGS=""
 ROLE_NAME=""
 APPLY=false
 REPORT_FILE=""
@@ -75,6 +76,7 @@ while [[ $# -gt 0 ]]; do
     --report)           REPORT_FILE="$2";       shift 2 ;;
     --parallel)         PARALLEL="$2";          shift 2 ;;
     --exclude-services) EXCLUDE_SERVICES="$2";  shift 2 ;;
+    --tags)             TAGS="$2";              shift 2 ;;
     --debug)            DEBUG=true;             shift ;;
     --help|-h)          usage ;;
     *) die "Unknown option: $1 — run with --help for usage." ;;
@@ -134,6 +136,41 @@ aws() {
       return $ec
     fi
   done
+}
+
+# ---------------------------------------------------------------------------
+# Tag filter
+# ---------------------------------------------------------------------------
+declare -A TAG_IDS=()
+
+load_tag_filter() {
+  local region="$1"
+  [[ -z "${TAGS}" ]] && return
+  TAG_IDS=()
+  local filter_args=()
+  IFS=',' read -ra _pairs <<< "${TAGS}"
+  for _pair in "${_pairs[@]}"; do
+    local _key="${_pair%%=*}"
+    local _val="${_pair#*=}"
+    filter_args+=("Key=${_key// /},Values=${_val// /}")
+  done
+  local _arn
+  while IFS= read -r _arn; do
+    [[ -z "${_arn}" ]] && continue
+    TAG_IDS["${_arn}"]="1"
+    local _id="${_arn##*/}"; [[ "${_id}" == "${_arn}" ]] && _id="${_arn##*:}"
+    TAG_IDS["${_id}"]="1"
+  done < <(aws resourcegroupstaggingapi get-resources \
+    --region "${region}" \
+    --tag-filters "${filter_args[@]}" \
+    --query 'ResourceTagMappingList[].ResourceARN' \
+    --output text 2>/dev/null || true)
+}
+
+tag_match() {
+  [[ -z "${TAGS}" ]] && return 0
+  [[ -n "${TAG_IDS[$1]+_}" ]] && return 0
+  return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -1128,6 +1165,105 @@ scan_transfer() {
     --output text 2>/dev/null || true)
 }
 
+scan_elasticbeanstalk() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r name; do
+    [[ -z "${name}" ]] && continue
+    LIVE_PAIRS+=("aws_elastic_beanstalk_application.$(slugify "${name}")" "${name}")
+  done < <(aws elasticbeanstalk describe-applications \
+    --region "${region}" --query 'Applications[].ApplicationName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+  while IFS=$'\t' read -r app env; do
+    [[ -z "${env}" ]] && continue
+    LIVE_PAIRS+=("aws_elastic_beanstalk_environment.$(slugify "${app}_${env}")" "${env}")
+  done < <(aws elasticbeanstalk describe-environments \
+    --region "${region}" --query 'Environments[].[ApplicationName,EnvironmentName]' \
+    --output text 2>/dev/null || true)
+}
+
+scan_apprunner() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r arn name; do
+    [[ -z "${arn}" ]] && continue
+    tag_match "${arn}" || continue
+    LIVE_PAIRS+=("aws_apprunner_service.$(slugify "${name:-${arn##*/}}")" "${arn}")
+  done < <(aws apprunner list-services \
+    --region "${region}" --query 'ServiceSummaryList[].[ServiceArn,ServiceName]' \
+    --output text 2>/dev/null || true)
+}
+
+scan_memorydb() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r name arn; do
+    [[ -z "${name}" ]] && continue
+    tag_match "${arn}" || continue
+    LIVE_PAIRS+=("aws_memorydb_cluster.$(slugify "${name}")" "${name}")
+  done < <(aws memorydb describe-clusters \
+    --region "${region}" --query 'Clusters[].[Name,ARN]' \
+    --output text 2>/dev/null || true)
+}
+
+scan_athena() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r name; do
+    [[ -z "${name}" || "${name}" == "primary" ]] && continue
+    LIVE_PAIRS+=("aws_athena_workgroup.$(slugify "${name}")" "${name}")
+  done < <(aws athena list-work-groups \
+    --region "${region}" --query 'WorkGroups[].Name' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+  while IFS=$'\t' read -r name; do
+    [[ -z "${name}" ]] && continue
+    LIVE_PAIRS+=("aws_athena_data_catalog.$(slugify "${name}")" "${name}")
+  done < <(aws athena list-data-catalogs \
+    --region "${region}" --query 'DataCatalogsSummary[?Type!=`GLUE`].CatalogName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+}
+
+scan_lakeformation() {
+  local region="$1"; LIVE_PAIRS=()
+  [[ "${region}" != "us-east-1" ]] && return
+  while IFS=$'\t' read -r arn; do
+    [[ -z "${arn}" ]] && continue
+    LIVE_PAIRS+=("aws_lakeformation_resource.$(slugify "${arn##*/}")" "${arn}")
+  done < <(aws lakeformation list-resources \
+    --region "${region}" --query 'ResourceInfoList[].ResourceArn' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+}
+
+scan_servicecatalog() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r id name; do
+    [[ -z "${id}" ]] && continue
+    LIVE_PAIRS+=("aws_servicecatalog_portfolio.$(slugify "${name:-${id}}")" "${id}")
+  done < <(aws servicecatalog list-portfolios \
+    --region "${region}" --query 'PortfolioDetails[].[Id,DisplayName]' \
+    --output text 2>/dev/null || true)
+  while IFS=$'\t' read -r id name; do
+    [[ -z "${id}" ]] && continue
+    LIVE_PAIRS+=("aws_servicecatalog_product.$(slugify "${name:-${id}}")" "${id}")
+  done < <(aws servicecatalog search-products-as-admin \
+    --region "${region}" --query 'ProductViewDetails[].ProductViewSummary.[ProductId,Name]' \
+    --output text 2>/dev/null || true)
+}
+
+scan_lightsail() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r name arn; do
+    [[ -z "${name}" ]] && continue
+    tag_match "${arn}" || continue
+    LIVE_PAIRS+=("aws_lightsail_instance.$(slugify "${name}")" "${name}")
+  done < <(aws lightsail get-instances \
+    --region "${region}" --query 'instances[].[name,arn]' \
+    --output text 2>/dev/null || true)
+  while IFS=$'\t' read -r name arn; do
+    [[ -z "${name}" ]] && continue
+    tag_match "${arn}" || continue
+    LIVE_PAIRS+=("aws_lightsail_database.$(slugify "${name}")" "${name}")
+  done < <(aws lightsail get-relational-databases \
+    --region "${region}" --query 'relationalDatabases[].[name,arn]' \
+    --output text 2>/dev/null || true)
+}
+
 # ---------------------------------------------------------------------------
 # Service dispatcher
 # ---------------------------------------------------------------------------
@@ -1179,7 +1315,14 @@ scan_service() {
     codebuild)      scan_codebuild      "${region}" ;;
     documentdb)     scan_documentdb     "${region}" ;;
     fsx)            scan_fsx            "${region}" ;;
-    transfer)       scan_transfer       "${region}" ;;
+    transfer)          scan_transfer          "${region}" ;;
+    elasticbeanstalk)  scan_elasticbeanstalk  "${region}" ;;
+    apprunner)         scan_apprunner         "${region}" ;;
+    memorydb)          scan_memorydb          "${region}" ;;
+    athena)            scan_athena            "${region}" ;;
+    lakeformation)     scan_lakeformation     "${region}" ;;
+    servicecatalog)    scan_servicecatalog    "${region}" ;;
+    lightsail)         scan_lightsail         "${region}" ;;
     *) log "  [WARN] Unknown service '${svc}' — skipping" ;;
   esac
 }
@@ -1219,6 +1362,9 @@ for account in "${ACCOUNT_LIST[@]}"; do
     region="${region// /}"
     [[ -z "${region}" ]] && continue
     log " Region: ${region}"
+
+    # Load tag filter for this region (no-op if --tags not set)
+    load_tag_filter "${region}"
 
     # -----------------------------------------------------------------------
     # Phase 1 — Parallel scan: each service writes LIVE_PAIRS to a temp file

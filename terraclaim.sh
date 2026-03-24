@@ -20,6 +20,8 @@
 #   --output    "./tf-output"       Root output directory (default: ./tf-output)
 #   --parallel  5                   Max concurrent service scans (default: 5, set to 1 to disable)
 #   --exclude-services "svc1,svc2"  Comma-separated services to skip
+#   --tags      "Env=prod,Team=sre" Only import resources with these tags (requires Resource Groups Tagging API)
+#   --resume                        Skip account/region/service combinations already written to the output dir
 #   --dry-run                       Print resource counts; do not write files
 #   --debug                         Verbose logging
 #   --version                       Print version and exit
@@ -32,13 +34,15 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 ACCOUNTS=""
 REGIONS="us-east-1"
-SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch,kinesis,cognito,cloudtrail,guardduty,backup,redshift,glue,ses,codepipeline,codebuild,documentdb,fsx,transfer"
+SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch,kinesis,cognito,cloudtrail,guardduty,backup,redshift,glue,ses,codepipeline,codebuild,documentdb,fsx,transfer,elasticbeanstalk,apprunner,memorydb,athena,lakeformation,servicecatalog,lightsail"
 EXCLUDE_SERVICES=""
+TAGS=""
 ROLE_NAME=""
 STATE_BUCKET=""
 STATE_REGION=""
 OUTPUT_DIR="./tf-output"
 PARALLEL=5
+RESUME=false
 DRY_RUN=false
 DEBUG=false
 VERSION="1.0.0"
@@ -75,6 +79,8 @@ while [[ $# -gt 0 ]]; do
     --output)       OUTPUT_DIR="$2";   shift 2 ;;
     --parallel)         PARALLEL="$2";          shift 2 ;;
     --exclude-services) EXCLUDE_SERVICES="$2";  shift 2 ;;
+    --tags)             TAGS="$2";              shift 2 ;;
+    --resume)           RESUME=true;            shift ;;
     --dry-run)          DRY_RUN=true;           shift ;;
     --debug)            DEBUG=true;             shift ;;
     --version)          echo "terraclaim ${VERSION}"; exit 0 ;;
@@ -121,6 +127,64 @@ aws() {
       return $ec
     fi
   done
+}
+
+# ---------------------------------------------------------------------------
+# Tag filter — populate TAG_IDS lookup from Resource Groups Tagging API
+# ---------------------------------------------------------------------------
+declare -A TAG_IDS=()
+
+load_tag_filter() {
+  local region="$1"
+  [[ -z "${TAGS}" ]] && return
+  TAG_IDS=()
+  local filter_args=()
+  IFS=',' read -ra _pairs <<< "${TAGS}"
+  for _pair in "${_pairs[@]}"; do
+    local _key="${_pair%%=*}"
+    local _val="${_pair#*=}"
+    filter_args+=("Key=${_key// /},Values=${_val// /}")
+  done
+  log "  [tags] loading tag filter for region ${region}..."
+  local _arn
+  while IFS= read -r _arn; do
+    [[ -z "${_arn}" ]] && continue
+    TAG_IDS["${_arn}"]="1"
+    # Extract bare ID: last component after / or : (handles most ARN formats)
+    local _id="${_arn##*/}"; [[ "${_id}" == "${_arn}" ]] && _id="${_arn##*:}"
+    TAG_IDS["${_id}"]="1"
+  done < <(aws resourcegroupstaggingapi get-resources \
+    --region "${region}" \
+    --tag-filters "${filter_args[@]}" \
+    --query 'ResourceTagMappingList[].ResourceARN' \
+    --output text 2>/dev/null || true)
+  debug "  [tags] ${#TAG_IDS[@]} tagged resource IDs loaded for ${region}"
+}
+
+# Returns 0 if resource matches tag filter (or no filter set), 1 otherwise
+tag_match() {
+  [[ -z "${TAGS}" ]] && return 0
+  [[ -n "${TAG_IDS[$1]+_}" ]] && return 0
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# Resume — checkpoint file tracks completed account/region/service triples
+# ---------------------------------------------------------------------------
+CHECKPOINT_FILE=""
+
+checkpoint_done() {
+  local account="$1" region="$2" service="$3"
+  "${RESUME}" || return 1
+  [[ -z "${CHECKPOINT_FILE}" ]] && return 1
+  grep -qxF "${account}/${region}/${service}" "${CHECKPOINT_FILE}" 2>/dev/null
+}
+
+checkpoint_mark() {
+  local account="$1" region="$2" service="$3"
+  "${RESUME}" || return
+  [[ -z "${CHECKPOINT_FILE}" ]] && return
+  echo "${account}/${region}/${service}" >> "${CHECKPOINT_FILE}"
 }
 
 # ---------------------------------------------------------------------------
@@ -1771,6 +1835,220 @@ export_transfer() {
   write_resources_tf "${path}" "${types[@]}"
 }
 
+export_elasticbeanstalk() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [elasticbeanstalk] listing applications and environments..."
+  while IFS=$'\t' read -r app_name; do
+    [[ -z "${app_name}" ]] && continue
+    local slug; slug=$(slugify "${app_name}")
+    imports+=("aws_elastic_beanstalk_application.${slug}" "${app_name}")
+    types+=("aws_elastic_beanstalk_application.${slug}")
+  done < <(aws elasticbeanstalk describe-applications \
+    --region "${region}" \
+    --query 'Applications[].ApplicationName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  while IFS=$'\t' read -r app_name env_name; do
+    [[ -z "${env_name}" ]] && continue
+    local slug; slug=$(slugify "${app_name}_${env_name}")
+    imports+=("aws_elastic_beanstalk_environment.${slug}" "${env_name}")
+    types+=("aws_elastic_beanstalk_environment.${slug}")
+  done < <(aws elasticbeanstalk describe-environments \
+    --region "${region}" \
+    --query 'Environments[].[ApplicationName,EnvironmentName]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [elasticbeanstalk] none found"; return; }
+  log "  [elasticbeanstalk] found $((${#imports[@]}/2)) resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "elasticbeanstalk"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_apprunner() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [apprunner] listing services..."
+  while IFS=$'\t' read -r arn name; do
+    [[ -z "${arn}" ]] && continue
+    tag_match "${arn}" || continue
+    local slug; slug=$(slugify "${name:-${arn##*/}}")
+    imports+=("aws_apprunner_service.${slug}" "${arn}")
+    types+=("aws_apprunner_service.${slug}")
+  done < <(aws apprunner list-services \
+    --region "${region}" \
+    --query 'ServiceSummaryList[].[ServiceArn,ServiceName]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [apprunner] none found"; return; }
+  log "  [apprunner] found $((${#imports[@]}/2)) services"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "apprunner"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_memorydb() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [memorydb] listing clusters..."
+  while IFS=$'\t' read -r name arn; do
+    [[ -z "${name}" ]] && continue
+    tag_match "${arn}" || continue
+    local slug; slug=$(slugify "${name}")
+    imports+=("aws_memorydb_cluster.${slug}" "${name}")
+    types+=("aws_memorydb_cluster.${slug}")
+  done < <(aws memorydb describe-clusters \
+    --region "${region}" \
+    --query 'Clusters[].[Name,ARN]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [memorydb] none found"; return; }
+  log "  [memorydb] found $((${#imports[@]}/2)) clusters"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "memorydb"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_athena() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [athena] listing workgroups..."
+  while IFS=$'\t' read -r name; do
+    [[ -z "${name}" ]] && continue
+    [[ "${name}" == "primary" ]] && continue   # skip AWS-managed default
+    local slug; slug=$(slugify "${name}")
+    imports+=("aws_athena_workgroup.${slug}" "${name}")
+    types+=("aws_athena_workgroup.${slug}")
+  done < <(aws athena list-work-groups \
+    --region "${region}" \
+    --query 'WorkGroups[].Name' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  while IFS=$'\t' read -r name; do
+    [[ -z "${name}" ]] && continue
+    local slug; slug=$(slugify "${name}")
+    imports+=("aws_athena_data_catalog.${slug}" "${name}")
+    types+=("aws_athena_data_catalog.${slug}")
+  done < <(aws athena list-data-catalogs \
+    --region "${region}" \
+    --query 'DataCatalogsSummary[?Type!=`GLUE`].CatalogName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [athena] none found"; return; }
+  log "  [athena] found $((${#imports[@]}/2)) resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "athena"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_lakeformation() {
+  # Lake Formation resources are global per account; only process in us-east-1
+  local account="$1" region="$2" path="$3"
+  [[ "${region}" != "us-east-1" ]] && return
+  local imports=() types=()
+  log "  [lakeformation] listing data lake settings and resources..."
+
+  # Data lake settings (one per account)
+  local slug; slug=$(slugify "${account}")
+  imports+=("aws_lakeformation_data_lake_settings.${slug}" "${account}")
+  types+=("aws_lakeformation_data_lake_settings.${slug}")
+
+  while IFS=$'\t' read -r resource_arn; do
+    [[ -z "${resource_arn}" ]] && continue
+    local rslug; rslug=$(slugify "${resource_arn##*/}")
+    imports+=("aws_lakeformation_resource.${rslug}" "${resource_arn}")
+    types+=("aws_lakeformation_resource.${rslug}")
+  done < <(aws lakeformation list-resources \
+    --region "${region}" \
+    --query 'ResourceInfoList[].ResourceArn' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [lakeformation] none found"; return; }
+  log "  [lakeformation] found $((${#imports[@]}/2)) resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "lakeformation"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_servicecatalog() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [servicecatalog] listing portfolios..."
+  while IFS=$'\t' read -r id name; do
+    [[ -z "${id}" ]] && continue
+    local slug; slug=$(slugify "${name:-${id}}")
+    imports+=("aws_servicecatalog_portfolio.${slug}" "${id}")
+    types+=("aws_servicecatalog_portfolio.${slug}")
+  done < <(aws servicecatalog list-portfolios \
+    --region "${region}" \
+    --query 'PortfolioDetails[].[Id,DisplayName]' \
+    --output text 2>/dev/null || true)
+
+  while IFS=$'\t' read -r id name; do
+    [[ -z "${id}" ]] && continue
+    local slug; slug=$(slugify "${name:-${id}}")
+    imports+=("aws_servicecatalog_product.${slug}" "${id}")
+    types+=("aws_servicecatalog_product.${slug}")
+  done < <(aws servicecatalog search-products-as-admin \
+    --region "${region}" \
+    --query 'ProductViewDetails[].ProductViewSummary.[ProductId,Name]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [servicecatalog] none found"; return; }
+  log "  [servicecatalog] found $((${#imports[@]}/2)) resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "servicecatalog"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_lightsail() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [lightsail] listing instances and databases..."
+  while IFS=$'\t' read -r name arn; do
+    [[ -z "${name}" ]] && continue
+    tag_match "${arn}" || continue
+    local slug; slug=$(slugify "${name}")
+    imports+=("aws_lightsail_instance.${slug}" "${name}")
+    types+=("aws_lightsail_instance.${slug}")
+  done < <(aws lightsail get-instances \
+    --region "${region}" \
+    --query 'instances[].[name,arn]' \
+    --output text 2>/dev/null || true)
+
+  while IFS=$'\t' read -r name arn; do
+    [[ -z "${name}" ]] && continue
+    tag_match "${arn}" || continue
+    local slug; slug=$(slugify "${name}")
+    imports+=("aws_lightsail_database.${slug}" "${name}")
+    types+=("aws_lightsail_database.${slug}")
+  done < <(aws lightsail get-relational-databases \
+    --region "${region}" \
+    --query 'relationalDatabases[].[name,arn]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [lightsail] none found"; return; }
+  log "  [lightsail] found $((${#imports[@]}/2)) resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "lightsail"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
 # ---------------------------------------------------------------------------
 # Service dispatcher
 # ---------------------------------------------------------------------------
@@ -1822,7 +2100,14 @@ dispatch_service() {
     codebuild)      export_codebuild      "${account}" "${region}" "${path}" ;;
     documentdb)     export_documentdb     "${account}" "${region}" "${path}" ;;
     fsx)            export_fsx            "${account}" "${region}" "${path}" ;;
-    transfer)       export_transfer       "${account}" "${region}" "${path}" ;;
+    transfer)          export_transfer          "${account}" "${region}" "${path}" ;;
+    elasticbeanstalk)  export_elasticbeanstalk  "${account}" "${region}" "${path}" ;;
+    apprunner)         export_apprunner         "${account}" "${region}" "${path}" ;;
+    memorydb)          export_memorydb          "${account}" "${region}" "${path}" ;;
+    athena)            export_athena            "${account}" "${region}" "${path}" ;;
+    lakeformation)     export_lakeformation     "${account}" "${region}" "${path}" ;;
+    servicecatalog)    export_servicecatalog    "${account}" "${region}" "${path}" ;;
+    lightsail)         export_lightsail         "${account}" "${region}" "${path}" ;;
     *) log "  [WARN] Unknown service '${svc}' — skipping" ;;
   esac
 }
@@ -1845,6 +2130,12 @@ if ! "${DRY_RUN}"; then
   } > "${SUMMARY_FILE}"
 fi
 
+if "${RESUME}"; then
+  CHECKPOINT_FILE="${OUTPUT_DIR}/.terraclaim-checkpoint"
+  touch "${CHECKPOINT_FILE}"
+  log "Resume mode enabled — checkpoint: ${CHECKPOINT_FILE}"
+fi
+
 for account in "${ACCOUNT_LIST[@]}"; do
   account="${account// /}"
   [[ -z "${account}" ]] && continue
@@ -1861,17 +2152,29 @@ for account in "${ACCOUNT_LIST[@]}"; do
 
     base_path="${OUTPUT_DIR}/${account}"
 
+    # Load tag filter for this region (no-op if --tags not set)
+    load_tag_filter "${region}"
+
     for service in "${SERVICE_LIST[@]}"; do
       service="${service// /}"
       [[ -z "${service}" ]] && continue
+
+      # Skip if already completed in a previous run (--resume)
+      if checkpoint_done "${account}" "${region}" "${service}"; then
+        debug "  [resume] skipping ${account}/${region}/${service}"
+        continue
+      fi
+
       if [[ "${PARALLEL}" -gt 1 ]]; then
         # Throttle to at most PARALLEL concurrent jobs
         while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${PARALLEL}" ]]; do
           wait -n 2>/dev/null || true
         done
-        dispatch_service "${service}" "${account}" "${region}" "${base_path}" &
+        ( dispatch_service "${service}" "${account}" "${region}" "${base_path}"
+          checkpoint_mark "${account}" "${region}" "${service}" ) &
       else
         dispatch_service "${service}" "${account}" "${region}" "${base_path}"
+        checkpoint_mark "${account}" "${region}" "${service}"
       fi
     done
     # Wait for all background service scans in this region to complete
@@ -1890,6 +2193,8 @@ if ! "${DRY_RUN}"; then
   log "Done. Total import blocks: ${TOTAL_IMPORTS}"
   log "Output: ${OUTPUT_DIR}"
   log "Summary: ${SUMMARY_FILE}"
+  # Clear checkpoint on successful completion
+  [[ -n "${CHECKPOINT_FILE}" ]] && rm -f "${CHECKPOINT_FILE}"
   log ""
   log "Next steps:"
   log "  1. For each service directory, run: terraform init"

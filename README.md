@@ -1,8 +1,8 @@
-# aws-tf-reverse
+# Terraclaim
 
-Reverse-engineer your AWS estate into Terraform import blocks — using scripts, not click-ops.
+Claim your AWS estate as Terraform — using scripts, not click-ops.
 
-`aws-tf-reverse` scans your AWS account(s) and generates ready-to-use Terraform
+`terraclaim` scans your AWS account(s) and generates ready-to-use Terraform
 `import {}` blocks (Terraform >= 1.5) together with resource skeletons and S3
 remote-state backends.  After running the script you can execute
 `terraform plan -generate-config-out=generated.tf` in any service directory to
@@ -33,8 +33,8 @@ jq --version
 ## Quick start
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/aws-tf-reverse.git
-cd aws-tf-reverse
+git clone https://github.com/andrewbakercloudscale/terraclaim.git
+cd terraclaim
 chmod +x aws-tf-reverse.sh reconcile.sh examples/*.sh
 ```
 
@@ -93,10 +93,11 @@ chmod +x aws-tf-reverse.sh reconcile.sh examples/*.sh
 | Category | Services |
 |----------|---------|
 | Compute | `ec2`, `ebs`, `ecs`, `eks`, `lambda` |
-| Networking | `vpc`, `elb`, `cloudfront`, `route53`, `acm` |
-| Data | `rds`, `dynamodb`, `elasticache`, `msk`, `s3` |
-| Integration | `sqs`, `sns`, `apigateway` |
-| Platform | `iam`, `kms`, `secretsmanager`, `ssm`, `cloudwatch` |
+| Networking | `vpc`, `elb`, `cloudfront`, `route53`, `acm`, `transitgateway`, `vpcendpoints` |
+| Data | `rds`, `dynamodb`, `elasticache`, `msk`, `s3`, `efs`, `opensearch` |
+| Integration | `sqs`, `sns`, `apigateway`, `eventbridge`, `stepfunctions` |
+| Security & Compliance | `iam`, `kms`, `secretsmanager`, `wafv2`, `config` |
+| Platform | `ecr`, `ssm`, `cloudwatch` |
 
 ---
 

@@ -1658,7 +1658,7 @@ export_ses() {
   log "  [ses] listing identities and configuration sets..."
 
   # Email/domain identities (SESv2)
-  while IFS=$'\t' read -r identity_name identity_type; do
+  while IFS=$'\t' read -r identity_name _identity_type; do
     [[ -z "${identity_name}" ]] && continue
     local slug; slug=$(slugify "${identity_name}")
     imports+=("aws_sesv2_email_identity.${slug}" "${identity_name}")
@@ -1804,7 +1804,7 @@ export_transfer() {
   local account="$1" region="$2" path="$3"
   local imports=() types=()
   log "  [transfer] listing Transfer Family servers..."
-  while IFS=$'\t' read -r server_id domain; do
+  while IFS=$'\t' read -r server_id _domain; do
     [[ -z "${server_id}" ]] && continue
     local slug; slug=$(slugify "${server_id}")
     imports+=("aws_transfer_server.${slug}" "${server_id}")

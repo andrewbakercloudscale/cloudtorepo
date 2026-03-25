@@ -23,17 +23,18 @@ if ! command -v shellcheck &>/dev/null; then
   echo -e "${YELLOW}[pre-commit] shellcheck not found — skipping (install with: brew install shellcheck)${NC}"
 else
   info "Running ShellCheck..."
-  # Collect staged .sh and .bash files
-  staged_sh=()
+  # Run on ALL shell files together — matches CI's check_together=yes behaviour
+  # so cross-source references (e.g. lib/common.sh) resolve correctly.
+  all_sh=()
   while IFS= read -r f; do
-    [[ -f "${f}" ]] && staged_sh+=("${f}")
-  done < <(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(sh|bash|bats)$' || true)
+    [[ -f "${f}" ]] && all_sh+=("${f}")
+  done < <(find . -not -path './.git/*' \( -name '*.sh' -o -name '*.bash' -o -name '*.bats' \) | sort)
 
-  if [[ ${#staged_sh[@]} -eq 0 ]]; then
-    pass "ShellCheck — no shell files staged"
+  if [[ ${#all_sh[@]} -eq 0 ]]; then
+    pass "ShellCheck — no shell files found"
   else
-    if shellcheck --severity=warning "${staged_sh[@]}" 2>&1; then
-      pass "ShellCheck — ${#staged_sh[@]} file(s) clean"
+    if shellcheck --severity=warning "${all_sh[@]}" 2>&1; then
+      pass "ShellCheck — ${#all_sh[@]} file(s) clean"
     else
       fail "ShellCheck found warnings — fix before committing"
       errors=$((errors + 1))

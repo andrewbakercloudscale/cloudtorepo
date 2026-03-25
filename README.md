@@ -224,6 +224,47 @@ directories succeeded, had no changes, or failed.
 
 ---
 
+## Running terraform import with import.sh
+
+After reviewing `generated.tf`, use `import.sh` to run `terraform import` for every
+resource block in the output tree. It checks `terraform state list` first and skips
+anything already managed, so it is safe to re-run at any time.
+
+```bash
+# Preview what would be imported (no state changes)
+./import.sh --output ./tf-output --dry-run
+
+# Import everything sequentially
+./import.sh --output ./tf-output
+
+# Import with parallel workers and auto terraform init
+./import.sh --output ./tf-output --parallel 4 --init
+
+# Limit to specific accounts, regions, or services
+./import.sh --output ./tf-output \
+  --accounts "123456789012" \
+  --regions  "us-east-1" \
+  --services "ec2,eks,rds"
+```
+
+Each service directory gets a `.import.log` file. A summary at the end shows
+resources imported, skipped (already in state), and failed.
+
+### import.sh options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--output` | Output directory from `terraclaim.sh` | `./tf-output` |
+| `--services` | Limit to specific services | All |
+| `--regions` | Limit to specific regions | All |
+| `--accounts` | Limit to specific accounts | All |
+| `--parallel` | Max concurrent terraform import runs | `1` |
+| `--init` | Run `terraform init` before importing | `false` |
+| `--dry-run` | Print what would be imported; do not run terraform | `false` |
+| `--debug` | Verbose logging | `false` |
+
+---
+
 ## Checking coverage with reconcile.sh
 
 After exporting, verify you haven't missed any resources by comparing the output
@@ -337,11 +378,12 @@ Run with --apply to update imports.tf files automatically.
 2. Export a single region with your highest-priority services (use `--parallel 5` for speed).
 3. Run `run.sh --output ./tf-output` to execute `terraform init` + `terraform plan` across all service directories automatically.
 4. Review `generated.tf` in each directory; remove computed / read-only attributes.
-5. Run `reconcile.sh` to identify gaps (requires AWS Resource Explorer).
-6. Commit the baseline on a `baseline-import` branch.
-7. Refactor incrementally via pull requests.
-8. Run `drift.sh` regularly (or in CI) to catch resources created outside Terraform.
-9. Use `--exclude-services` to skip services managed by a different team or tool.
+5. Run `import.sh --output ./tf-output --dry-run` to preview, then `import.sh --output ./tf-output` to execute `terraform import` for all resources not yet in state.
+6. Run `reconcile.sh` to identify gaps (requires AWS Resource Explorer, or use `--local` for a quick count without it).
+7. Commit the baseline on a `baseline-import` branch.
+8. Refactor incrementally via pull requests.
+9. Run `drift.sh` regularly (or in CI) to catch resources created outside Terraform.
+10. Use `--exclude-services` to skip services managed by a different team or tool.
 
 ---
 

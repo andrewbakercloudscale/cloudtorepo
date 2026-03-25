@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# pre-commit hook — runs ShellCheck and BATS before every commit.
+# Install: already in .git/hooks/pre-commit (this file).
+# Requires: shellcheck, bats
+
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+pass() { echo -e "${GREEN}✓${NC} $*"; }
+fail() { echo -e "${RED}✗${NC} $*"; }
+info() { echo -e "${YELLOW}▸${NC} $*"; }
+
+errors=0
+
+# ---------------------------------------------------------------------------
+# ShellCheck
+# ---------------------------------------------------------------------------
+if ! command -v shellcheck &>/dev/null; then
+  echo -e "${YELLOW}[pre-commit] shellcheck not found — skipping (install with: brew install shellcheck)${NC}"
+else
+  info "Running ShellCheck..."
+  # Collect staged .sh and .bash files
+  staged_sh=()
+  while IFS= read -r f; do
+    [[ -f "${f}" ]] && staged_sh+=("${f}")
+  done < <(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(sh|bash|bats)$' || true)
+
+  if [[ ${#staged_sh[@]} -eq 0 ]]; then
+    pass "ShellCheck — no shell files staged"
+  else
+    if shellcheck --severity=warning "${staged_sh[@]}" 2>&1; then
+      pass "ShellCheck — ${#staged_sh[@]} file(s) clean"
+    else
+      fail "ShellCheck found warnings — fix before committing"
+      errors=$((errors + 1))
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# BATS tests
+# ---------------------------------------------------------------------------
+if ! command -v bats &>/dev/null; then
+  echo -e "${YELLOW}[pre-commit] bats not found — skipping (install with: brew install bats-core)${NC}"
+else
+  info "Running BATS tests..."
+  bats_files=()
+  while IFS= read -r f; do
+    [[ -f "${f}" ]] && bats_files+=("${f}")
+  done < <(find tests -maxdepth 1 -name '*.bats' 2>/dev/null | sort)
+
+  if [[ ${#bats_files[@]} -eq 0 ]]; then
+    pass "BATS — no test files found"
+  else
+    if bats "${bats_files[@]}" 2>&1; then
+      pass "BATS — all tests passed"
+    else
+      fail "BATS tests failed — fix before committing"
+      errors=$((errors + 1))
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+echo ""
+if [[ ${errors} -gt 0 ]]; then
+  echo -e "${RED}pre-commit: ${errors} check(s) failed — commit blocked.${NC}"
+  exit 1
+fi
+echo -e "${GREEN}pre-commit: all checks passed.${NC}"

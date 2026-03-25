@@ -2340,6 +2340,98 @@ export_bedrock() {
   write_resources_tf "${path}" "${types[@]}"
 }
 
+export_connect() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [connect] listing instances..."
+
+  local instances
+  instances=$(aws connect list-instances \
+    --region "${region}" \
+    --query 'InstanceSummaryList[].Id' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  for instance_id in ${instances}; do
+    [[ -z "${instance_id}" ]] && continue
+    local slug; slug=$(slugify "${instance_id}")
+    imports+=("aws_connect_instance.${slug}" "${instance_id}")
+    types+=("aws_connect_instance.${slug}")
+
+    # Contact flows for this instance
+    while IFS=$'\t' read -r flow_id flow_name flow_type; do
+      [[ -z "${flow_id}" ]] && continue
+      [[ "${flow_type}" == "CONTACT_FLOW" ]] || continue
+      local flow_slug; flow_slug=$(slugify "${flow_name:-${flow_id}}")
+      imports+=("aws_connect_contact_flow.${slug}_${flow_slug}" "${instance_id}:${flow_id}")
+      types+=("aws_connect_contact_flow.${slug}_${flow_slug}")
+    done < <(aws connect list-contact-flows \
+      --instance-id "${instance_id}" \
+      --region "${region}" \
+      --query 'ContactFlowSummaryList[].[Id, Name, ContactFlowType]' \
+      --output text 2>/dev/null || true)
+  done
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [connect] no resources found"; return; }
+  log "  [connect] found $((${#imports[@]}/2)) Connect resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "connect"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_ram() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [ram] listing resource shares..."
+
+  while IFS=$'\t' read -r share_arn share_name; do
+    [[ -z "${share_arn}" ]] && continue
+    tag_match "${share_arn}" || continue
+    local slug; slug=$(slugify "${share_name:-${share_arn##*/}}")
+    imports+=("aws_ram_resource_share.${slug}" "${share_arn}")
+    types+=("aws_ram_resource_share.${slug}")
+  done < <(aws ram list-resource-shares \
+    --resource-owner SELF \
+    --region "${region}" \
+    --query 'resourceShares[].[resourceShareArn, name]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [ram] no resource shares found"; return; }
+  log "  [ram] found $((${#imports[@]}/2)) RAM resource shares"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "ram"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_servicequotas() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [servicequotas] listing applied quota overrides..."
+
+  # Only non-default (customer-modified) quotas are importable resources
+  while IFS=$'\t' read -r quota_arn service_code quota_code; do
+    [[ -z "${quota_arn}" ]] && continue
+    local slug; slug=$(slugify "${service_code}_${quota_code}")
+    imports+=("aws_servicequotas_service_quota.${slug}" "${service_code}/${quota_code}")
+    types+=("aws_servicequotas_service_quota.${slug}")
+  done < <(aws service-quotas list-requested-services-by-requester \
+    --requester-type ACCOUNT \
+    --region "${region}" \
+    --query 'RequestedQuotas[].[QuotaArn, ServiceCode, QuotaCode]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [servicequotas] no quota overrides found"; return; }
+  log "  [servicequotas] found $((${#imports[@]}/2)) quota overrides"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "servicequotas"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
 # ---------------------------------------------------------------------------
 # Service dispatcher
 # ---------------------------------------------------------------------------
@@ -2405,6 +2497,9 @@ dispatch_service() {
     xray)              export_xray              "${account}" "${region}" "${path}" ;;
     appconfig)         export_appconfig         "${account}" "${region}" "${path}" ;;
     bedrock)           export_bedrock           "${account}" "${region}" "${path}" ;;
+    connect)           export_connect           "${account}" "${region}" "${path}" ;;
+    ram)               export_ram               "${account}" "${region}" "${path}" ;;
+    servicequotas)     export_servicequotas     "${account}" "${region}" "${path}" ;;
     *) log "  [WARN] Unknown service '${svc}' — skipping" ;;
   esac
 }

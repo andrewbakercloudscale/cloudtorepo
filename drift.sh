@@ -1322,6 +1322,51 @@ scan_bedrock() {
     --output text 2>/dev/null || true)
 }
 
+scan_connect() {
+  local region="$1"; LIVE_PAIRS=()
+  local instances
+  instances=$(aws connect list-instances \
+    --region "${region}" --query 'InstanceSummaryList[].Id' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+  for instance_id in ${instances}; do
+    [[ -z "${instance_id}" ]] && continue
+    local slug; slug=$(slugify "${instance_id}")
+    LIVE_PAIRS+=("aws_connect_instance.${slug}" "${instance_id}")
+    while IFS=$'\t' read -r flow_id flow_name flow_type; do
+      [[ -z "${flow_id}" || "${flow_type}" != "CONTACT_FLOW" ]] && continue
+      local flow_slug; flow_slug=$(slugify "${flow_name:-${flow_id}}")
+      LIVE_PAIRS+=("aws_connect_contact_flow.${slug}_${flow_slug}" "${instance_id}:${flow_id}")
+    done < <(aws connect list-contact-flows \
+      --instance-id "${instance_id}" \
+      --region "${region}" --query 'ContactFlowSummaryList[].[Id, Name, ContactFlowType]' \
+      --output text 2>/dev/null || true)
+  done
+}
+
+scan_ram() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r share_arn share_name; do
+    [[ -z "${share_arn}" ]] && continue
+    tag_match "${share_arn}" || continue
+    LIVE_PAIRS+=("aws_ram_resource_share.$(slugify "${share_name:-${share_arn##*/}}")" "${share_arn}")
+  done < <(aws ram list-resource-shares \
+    --resource-owner SELF \
+    --region "${region}" --query 'resourceShares[].[resourceShareArn, name]' \
+    --output text 2>/dev/null || true)
+}
+
+scan_servicequotas() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r quota_arn service_code quota_code; do
+    [[ -z "${quota_arn}" ]] && continue
+    local slug; slug=$(slugify "${service_code}_${quota_code}")
+    LIVE_PAIRS+=("aws_servicequotas_service_quota.${slug}" "${service_code}/${quota_code}")
+  done < <(aws service-quotas list-requested-services-by-requester \
+    --requester-type ACCOUNT \
+    --region "${region}" --query 'RequestedQuotas[].[QuotaArn, ServiceCode, QuotaCode]' \
+    --output text 2>/dev/null || true)
+}
+
 # ---------------------------------------------------------------------------
 # Service dispatcher
 #
@@ -1392,6 +1437,9 @@ scan_service() {
     xray)              scan_xray              "${region}" ;;
     appconfig)         scan_appconfig         "${region}" ;;
     bedrock)           scan_bedrock           "${region}" ;;
+    connect)           scan_connect           "${region}" ;;
+    ram)               scan_ram               "${region}" ;;
+    servicequotas)     scan_servicequotas     "${region}" ;;
     *) log "  [WARN] Unknown service '${svc}' — skipping" ;;
   esac
 }

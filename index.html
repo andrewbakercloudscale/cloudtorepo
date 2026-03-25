@@ -792,7 +792,7 @@
 <!-- SERVICES -->
 <section id="services" data-tab="overview">
   <div class="section-label">Supported services</div>
-  <h2>50+ AWS services covered</h2>
+  <h2>65+ AWS services covered</h2>
   <p class="section-intro">All the core services you need to bring a real-world AWS estate under Terraform control.</p>
   <div class="service-grid">
     <div class="service-card">
@@ -850,7 +850,7 @@
     <div class="service-card">
       <h3>ETL &amp; Analytics</h3>
       <div class="tags">
-        <span class="tag">glue</span><span class="tag">athena</span><span class="tag">lakeformation</span><span class="tag">memorydb</span>
+        <span class="tag">glue</span><span class="tag">athena</span><span class="tag">lakeformation</span><span class="tag">memorydb</span><span class="tag">emr</span>
       </div>
     </div>
     <div class="service-card">
@@ -862,14 +862,22 @@
     <div class="service-card">
       <h3>App Platform</h3>
       <div class="tags">
-        <span class="tag">elasticbeanstalk</span><span class="tag">apprunner</span><span class="tag">lightsail</span>
+        <span class="tag">elasticbeanstalk</span><span class="tag">apprunner</span><span class="tag">lightsail</span><span class="tag">connect</span><span class="tag">appconfig</span>
       </div>
     </div>
     <div class="service-card">
-      <h3>Governance</h3>
+      <h3>AI / ML</h3>
       <div class="tags">
-        <span class="tag">servicecatalog</span>
+        <span class="tag">bedrock</span><span class="tag">sagemaker</span>
       </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">Bedrock agents &amp; knowledge bases; SageMaker domains &amp; endpoints.</p>
+    </div>
+    <div class="service-card">
+      <h3>Governance &amp; Org</h3>
+      <div class="tags">
+        <span class="tag">servicecatalog</span><span class="tag">organizations</span><span class="tag">ram</span><span class="tag">servicequotas</span><span class="tag">xray</span>
+      </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">Organizations covers accounts &amp; OUs; RAM covers resource shares across accounts.</p>
     </div>
   </div>
 </section>
@@ -1231,16 +1239,16 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh report.sh</pre>
   <div class="section-label">Quality</div>
   <h2>Tested before every commit</h2>
   <p class="section-intro" style="max-width:640px;margin:0 auto 2rem;">
-    A 55-test BATS suite (mock AWS CLI, no real credentials needed) and ShellCheck static analysis run automatically via a pre-commit hook and GitHub Actions CI — blocking any commit or push that introduces a regression.
+    An 89-test BATS suite across 6 suites (mock AWS CLI, no real credentials needed) and ShellCheck static analysis run automatically via a pre-commit hook and GitHub Actions CI — blocking any commit or push that introduces a regression.
   </p>
   <div style="display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;">
     <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
-      <div style="font-size:2rem;font-weight:800;color:var(--accent);">55</div>
+      <div style="font-size:2rem;font-weight:800;color:var(--accent);">89</div>
       <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">automated tests</div>
     </div>
     <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
-      <div style="font-size:2rem;font-weight:800;color:var(--accent2);">4</div>
-      <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">test suites<br><span style="font-size:0.8rem;opacity:0.7;">terraclaim · drift · reconcile · common</span></div>
+      <div style="font-size:2rem;font-weight:800;color:var(--accent2);">6</div>
+      <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">test suites<br><span style="font-size:0.8rem;opacity:0.7;">terraclaim · drift · reconcile · report · run · common</span></div>
     </div>
     <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
       <div style="font-size:2rem;font-weight:800;color:#d4f700;">0</div>

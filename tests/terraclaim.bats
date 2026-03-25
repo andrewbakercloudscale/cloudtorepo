@@ -352,3 +352,42 @@ teardown() {
   grep -q 'i-0abc123def456' "${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2/imports.tf"
   ! grep -q 'i-DIFFERENT' "${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2/imports.tf"
 }
+
+@test "export_connect writes import block for instance" {
+  mock_response "connect list-instances" "abc-instance-id"
+  mock_response "connect list-contact-flows" ""
+  run bash "${TERRACLAIM}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services connect \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  local imports_tf="${_TC_OUTPUT_DIR}/123456789012/us-east-1/connect/imports.tf"
+  [ -f "${imports_tf}" ]
+  grep -q 'aws_connect_instance' "${imports_tf}"
+  grep -q 'abc-instance-id' "${imports_tf}"
+}
+
+@test "export_ram writes import block for resource share" {
+  mock_response "ram list-resource-shares" \
+    "$(printf 'arn:aws:ram:us-east-1:123456789012:resource-share/share-id\tmy-share')"
+  run bash "${TERRACLAIM}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services ram \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  local imports_tf="${_TC_OUTPUT_DIR}/123456789012/us-east-1/ram/imports.tf"
+  [ -f "${imports_tf}" ]
+  grep -q 'aws_ram_resource_share' "${imports_tf}"
+  grep -q 'share-id' "${imports_tf}"
+}
+
+@test "--services list includes new services" {
+  run bash "${TERRACLAIM}" --services list
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "connect" ]]
+  [[ "$output" =~ "ram" ]]
+  [[ "$output" =~ "servicequotas" ]]
+  [[ "$output" =~ "bedrock" ]]
+}

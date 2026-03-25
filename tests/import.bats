@@ -184,3 +184,14 @@ teardown() {
     ! grep -q 'aws_instance.server' "${_TC_MOCK_DIR}/import_calls.log"
   [[ "$output" =~ "skipped" ]] || [[ "$output" =~ "already in state" ]]
 }
+
+@test "--parallel accepts a valid integer and processes all directories" {
+  run bash "${IMPORT}" \
+    --parallel 3 \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  # All three service directories should have been processed
+  grep -q 'aws_instance.server'      "${_TC_MOCK_DIR}/import_calls.log"
+  grep -q 'aws_s3_bucket.mybucket'   "${_TC_MOCK_DIR}/import_calls.log"
+  grep -q 'aws_lambda_function.fn'   "${_TC_MOCK_DIR}/import_calls.log"
+}

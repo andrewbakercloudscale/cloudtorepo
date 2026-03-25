@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.7.2] — 2026-03-25
+
+### Added
+- `.github/workflows/import.yml` — `workflow_dispatch` CI job that runs
+  `import.sh` against the output directory. Inputs: `regions`, `services`,
+  `accounts`, `parallel`, `dry_run` (default `true`). Uploads per-directory
+  `.import*.log` files as artifacts. Uses OIDC for AWS authentication.
+- `tests/import.bats` +1 — `--parallel` test: verifies that all three service
+  directories are processed and all resources imported when `--parallel 3` is set.
+- `index.html`: Reconcile section added to Deep Dive tab — shows full
+  `reconcile.sh` output example, `--local` output example, and
+  `--services list` demo with sample output.
+
+### Changed
+- README: `import.bats` row updated to 13 tests; suite total updated to 112.
+
+---
+
 ## [1.7.1] — 2026-03-25
 
 ### Added

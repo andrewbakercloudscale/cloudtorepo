@@ -461,14 +461,14 @@ Attach this managed policy (or an inline equivalent) to the IAM role or user:
 ## Testing
 
 The `tests/` directory contains a [bats-core](https://bats-core.readthedocs.io/) test suite
-(111 tests across 7 suites) that exercises all scripts using a mock AWS CLI and mock
+(112 tests across 7 suites) that exercises all scripts using a mock AWS CLI and mock
 Terraform binary — no real AWS credentials or Terraform state needed.
 
 | File | Tests | What it tests |
 |------|------:|--------------|
 | `tests/terraclaim.bats` | 26 | Main scanner: flags, service exporters, slug dedup, `--resume`, `--output-format`, `--since`, `--exclude-services`, `--services list` |
 | `tests/drift.bats` | 26 | Drift detection: NEW/REMOVED reporting, `--apply` mutations, `--dry-run`, `--services list`, 13 scan functions |
-| `tests/import.bats` | 12 | Terraform import runner: flags, filters, `--dry-run`, state-skipping, import call verification |
+| `tests/import.bats` | 13 | Terraform import runner: flags, filters, `--dry-run`, `--parallel`, state-skipping, import call verification |
 | `tests/reconcile.bats` | 8 | Coverage calculation: simple IDs, ARN-as-ID, composite IDs, missed resources, `--local` |
 | `tests/report.bats` | 13 | Markdown report: title, summary table, per-service counts, sort order, `--out`, drift section |
 | `tests/run.bats` | 11 | Terraform plan runner: flags, filters, `--dry-run`, `--init-only`, no-match exit |

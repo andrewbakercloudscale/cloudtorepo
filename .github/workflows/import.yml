@@ -1,0 +1,84 @@
+name: Import
+
+on:
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: 'Comma-separated regions to import'
+        required: false
+        default: 'us-east-1'
+      services:
+        description: 'Comma-separated services (blank = all)'
+        required: false
+        default: ''
+      accounts:
+        description: 'Comma-separated account IDs (blank = current account)'
+        required: false
+        default: ''
+      parallel:
+        description: 'Max concurrent terraform import workers'
+        required: false
+        default: '3'
+      dry_run:
+        description: 'Dry run — preview imports without touching state'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write    # OIDC token for AWS role assumption
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ github.event.inputs.regions || 'us-east-1' }}
+
+      - name: Install Terraform
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y jq unzip
+          TF_VERSION="1.7.5"
+          curl -fsSL \
+            "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" \
+            -o terraform.zip
+          unzip -q terraform.zip && sudo mv terraform /usr/local/bin/
+          rm terraform.zip
+
+      - name: Run terraform import
+        id: import
+        run: |
+          chmod +x import.sh
+
+          EXTRA_ARGS=""
+          [[ -n "${{ github.event.inputs.services }}" ]] && \
+            EXTRA_ARGS="${EXTRA_ARGS} --services ${{ github.event.inputs.services }}"
+          [[ -n "${{ github.event.inputs.accounts }}" ]] && \
+            EXTRA_ARGS="${EXTRA_ARGS} --accounts ${{ github.event.inputs.accounts }}"
+          [[ "${{ github.event.inputs.dry_run }}" == "true" ]] && \
+            EXTRA_ARGS="${EXTRA_ARGS} --dry-run"
+
+          bash ./import.sh \
+            --output ./tf-output \
+            --regions "${{ github.event.inputs.regions || 'us-east-1' }}" \
+            --parallel "${{ github.event.inputs.parallel || '3' }}" \
+            --init \
+            ${EXTRA_ARGS}
+
+      - name: Upload import logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: import-logs-${{ github.run_id }}
+          path: tf-output/**/.import*.log
+          retention-days: 14
+          if-no-files-found: ignore

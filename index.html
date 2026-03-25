@@ -990,6 +990,101 @@ Removed (stale):          1</pre>
 
 <hr class="divider" data-tab="deepdive" />
 
+<!-- RECONCILE -->
+<section id="reconcile" data-tab="deepdive">
+  <div class="section-label">Coverage check</div>
+  <h2>Find what you missed</h2>
+  <p class="section-intro">
+    After exporting, <code>reconcile.sh</code> cross-references your <code>imports.tf</code>
+    files against AWS Resource Explorer to surface any resources that were skipped.
+    No Resource Explorer? Use <code>--local</code> for an instant per-service summary from
+    the output directory alone.
+  </p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">%</div>
+      <h3>Coverage score</h3>
+      <p>Compares every import ID against all ARNs returned by Resource Explorer. Reports matched, missed, and overall coverage percentage.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">LOCAL</div>
+      <h3>No Resource Explorer needed</h3>
+      <p><code>--local</code> skips the API call entirely and prints import block counts per account / region / service straight from the output directory. Useful during initial setup.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">LIST</div>
+      <h3>Discover supported services</h3>
+      <p>Run <code>./terraclaim.sh --services list</code> or <code>./drift.sh --services list</code> to print all supported service names — useful for scripting or building a custom <code>--services</code> argument.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:2rem;display:flex;flex-direction:column;gap:1rem;">
+    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">reconcile.sh — with Resource Explorer</h3>
+<pre><span class="cm"># full coverage check (requires Resource Explorer aggregator index)</span>
+./reconcile.sh --output ./tf-output --index-region us-east-1
+
+Summary
+-------
+Total resources (Resource Explorer):  847
+Matched to exported import blocks:    801
+Potentially missed:                    46
+Coverage:                              94%</pre>
+    </div>
+    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">reconcile.sh --local — no Resource Explorer required</h3>
+<pre><span class="cm"># local summary — no AWS API calls beyond listing the output directory</span>
+./reconcile.sh --output ./tf-output --local
+
+Account / Region / Service        Import blocks
+------------------------------------------
+123456789012 / us-east-1 / ec2           47
+123456789012 / us-east-1 / eks           12
+123456789012 / us-east-1 / rds            8
+123456789012 / us-east-1 / s3             5
+123456789012 / eu-west-1 / ec2           31
+------------------------------------------
+Total                                   103
+
+<span class="cm">Tip: enable Resource Explorer for full coverage scoring:</span>
+<span class="cm">  aws resource-explorer-2 create-index --type AGGREGATOR --region us-east-1</span></pre>
+    </div>
+    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">--services list — discover all supported services</h3>
+<pre><span class="cm"># print every supported service name, one per line</span>
+./terraclaim.sh --services list
+
+acm
+apigateway
+appconfig
+apprunner
+athena
+backup
+bedrock
+cloudfront
+cloudtrail
+cloudwatch
+codebuild
+codepipeline
+cognito
+config
+connect
+documentdb
+dynamodb
+ebs
+ecr
+ecs
+eks
+elasticache
+elb
+emr
+...and more</pre>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" data-tab="deepdive" />
+
 <!-- REPORT -->
 <section id="report" data-tab="deepdive">
   <div class="section-label">Reporting</div>
@@ -1293,11 +1388,11 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh report.sh import.sh</pre>
   <div class="section-label">Quality</div>
   <h2>Tested before every commit</h2>
   <p class="section-intro" style="max-width:640px;margin:0 auto 2rem;">
-    A 111-test BATS suite across 7 suites (mock AWS CLI and Terraform, no real credentials needed) and ShellCheck static analysis run automatically via a pre-commit hook and GitHub Actions CI — blocking any commit or push that introduces a regression.
+    A 112-test BATS suite across 7 suites (mock AWS CLI and Terraform, no real credentials needed) and ShellCheck static analysis run automatically via a pre-commit hook and GitHub Actions CI — blocking any commit or push that introduces a regression.
   </p>
   <div style="display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;">
     <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
-      <div style="font-size:2rem;font-weight:800;color:var(--accent);">111</div>
+      <div style="font-size:2rem;font-weight:800;color:var(--accent);">112</div>
       <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">automated tests</div>
     </div>
     <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">

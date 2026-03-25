@@ -31,6 +31,8 @@
 
 set -euo pipefail
 
+# shellcheck source=lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -38,7 +40,7 @@ set -euo pipefail
 OUTPUT_DIR="./tf-output"
 ACCOUNTS=""
 REGIONS="us-east-1"
-SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch,kinesis,cognito,cloudtrail,guardduty,backup,redshift,glue,ses,codepipeline,codebuild,documentdb,fsx,transfer,elasticbeanstalk,apprunner,memorydb,athena,lakeformation,servicecatalog,lightsail"
+SERVICES="${_TERRACLAIM_DEFAULT_SERVICES}"
 EXCLUDE_SERVICES=""
 TAGS=""
 ROLE_NAME=""
@@ -51,15 +53,6 @@ DEBUG=false
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-log()  { echo "[INFO]  $*" >&2; }
-debug(){ [[ "${DEBUG}" == "true" ]] && echo "[DEBUG] $*" >&2 || true; }
-err()  { echo "[ERROR] $*" >&2; }
-die()  { err "$*"; exit 1; }
-
-slugify() {
-  echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//'
-}
-
 usage() {
   grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'
   exit 0
@@ -123,111 +116,9 @@ if [[ -n "${EXCLUDE_SERVICES}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# AWS CLI wrapper — retries on throttling with exponential back-off + jitter
+# Tag filter — _TAG_IDS_FILE initialised alongside the main EXIT trap
 # ---------------------------------------------------------------------------
-aws() {
-  local attempt=1 delay=1 max=5 out ec
-  while true; do
-    out=$(command aws "$@" 2>&1); ec=$?
-    if [[ $ec -eq 0 ]]; then
-      printf '%s' "${out}"
-      return 0
-    fi
-    if [[ $attempt -lt $max ]] && \
-       echo "${out}" | grep -qiE 'ThrottlingException|RequestLimitExceeded|Rate exceeded|Throttling|SlowDown|TooManyRequestsException'; then
-      local jitter; jitter=$(awk "BEGIN{srand(${RANDOM}); printf \"%.2f\", rand()}")
-      local sleep_time; sleep_time=$(awk "BEGIN{printf \"%.2f\", ${delay} + ${jitter}}")
-      debug "  [backoff] throttled — attempt ${attempt}/${max}, retrying in ${sleep_time}s"
-      sleep "${sleep_time}"
-      delay=$(( delay * 2 ))
-      attempt=$(( attempt + 1 ))
-    else
-      # Surface auth/credential errors via a temp file so they are never
-      # silently swallowed by 2>/dev/null at call sites
-      if echo "${out}" | grep -qiE 'AccessDeniedException|UnauthorizedOperation|AuthFailure|ExpiredTokenException|InvalidClientTokenId|NoCredentialProviders|AccessDenied'; then
-        echo "[WARN] AWS auth/permission error — aws ${*:1:2}: ${out}" >> "${_AWS_WARN_FILE:-/dev/stderr}"
-      fi
-      printf '%s\n' "${out}" >&2
-      return $ec
-    fi
-  done
-}
-
-# Print any queued auth warnings and clear the file
-flush_aws_warnings() {
-  [[ -z "${_AWS_WARN_FILE:-}" || ! -s "${_AWS_WARN_FILE}" ]] && return
-  while IFS= read -r _warn_line; do
-    err "${_warn_line}"
-  done < "${_AWS_WARN_FILE}"
-  true > "${_AWS_WARN_FILE}"
-}
-
-# ---------------------------------------------------------------------------
-# Tag filter (temp-file set — bash 3.2 compatible)
-# ---------------------------------------------------------------------------
-_TAG_IDS_FILE=""   # initialised alongside the main EXIT trap
-
-load_tag_filter() {
-  local region="$1"
-  [[ -z "${TAGS}" ]] && return 0
-  true > "${_TAG_IDS_FILE}"
-  local filter_args=()
-  IFS=',' read -ra _pairs <<< "${TAGS}"
-  for _pair in "${_pairs[@]}"; do
-    local _key="${_pair%%=*}"
-    local _val="${_pair#*=}"
-    filter_args+=("Key=${_key// /},Values=${_val// /}")
-  done
-  log "  [tags] loading tag filter for region ${region}..."
-  local _arn
-  while IFS= read -r _arn; do
-    [[ -z "${_arn}" ]] && continue
-    echo "${_arn}" >> "${_TAG_IDS_FILE}"
-    local _id="${_arn##*/}"; [[ "${_id}" == "${_arn}" ]] && _id="${_arn##*:}"
-    echo "${_id}" >> "${_TAG_IDS_FILE}"
-  done < <(aws resourcegroupstaggingapi get-resources \
-    --region "${region}" \
-    --tag-filters "${filter_args[@]}" \
-    --query 'ResourceTagMappingList[].ResourceARN' \
-    --output text 2>/dev/null || true)
-  local _count; _count=$(wc -l < "${_TAG_IDS_FILE}" | tr -d ' ') || true
-  debug "  [tags] ${_count} tagged resource IDs loaded for ${region}"
-  if [[ ! -s "${_TAG_IDS_FILE}" ]]; then
-    err "[WARN] --tags filter returned 0 matching resources in ${region}. Verify:"
-    err "  - IAM permission resourcegroupstaggingapi:GetResources is granted"
-    err "  - Tags are specified exactly as they appear in AWS: ${TAGS}"
-  fi
-}
-
-tag_match() {
-  [[ -z "${TAGS}" ]] && return 0
-  grep -qxF "$1" "${_TAG_IDS_FILE}" 2>/dev/null
-}
-
-# ---------------------------------------------------------------------------
-# Cross-account role assumption
-# ---------------------------------------------------------------------------
-assume_role() {
-  local account_id="$1" role="$2"
-  local arn="arn:aws:iam::${account_id}:role/${role}"
-  debug "Assuming role: ${arn}"
-  local creds
-  creds=$(aws sts assume-role \
-    --role-arn "${arn}" \
-    --role-session-name "terraclaim-drift-$$" \
-    --query 'Credentials' \
-    --output json) || die "Failed to assume role ${arn}"
-  export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
-  AWS_ACCESS_KEY_ID=$(echo "${creds}"     | jq -r '.AccessKeyId')
-  AWS_SECRET_ACCESS_KEY=$(echo "${creds}" | jq -r '.SecretAccessKey')
-  AWS_SESSION_TOKEN=$(echo "${creds}"     | jq -r '.SessionToken')
-  [[ "${AWS_ACCESS_KEY_ID}" == "null" || -z "${AWS_ACCESS_KEY_ID}" ]] && \
-    die "assume_role: invalid credentials returned for ${arn} — verify the role exists and its trust policy allows this principal"
-}
-
-restore_credentials() {
-  unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
-}
+_TAG_IDS_FILE=""
 
 # ---------------------------------------------------------------------------
 # Parse known import IDs from an existing imports.tf
@@ -386,6 +277,7 @@ scan_ec2() {
   local region="$1"; LIVE_PAIRS=()
   while IFS=$'\t' read -r instance_id name_tag; do
     [[ -z "${instance_id}" ]] && continue
+    tag_match "${instance_id}" || continue
     local slug; slug=$(slugify "${name_tag:-${instance_id}}")
     LIVE_PAIRS+=("aws_instance.${slug}" "${instance_id}")
   done < <(aws ec2 describe-instances \
@@ -399,6 +291,7 @@ scan_ebs() {
   local region="$1"; LIVE_PAIRS=()
   while IFS=$'\t' read -r vol_id name_tag; do
     [[ -z "${vol_id}" ]] && continue
+    tag_match "${vol_id}" || continue
     local slug; slug=$(slugify "${name_tag:-${vol_id}}")
     LIVE_PAIRS+=("aws_ebs_volume.${slug}" "${vol_id}")
   done < <(aws ec2 describe-volumes \
@@ -409,20 +302,38 @@ scan_ebs() {
 
 scan_s3() {
   local region="$1"; LIVE_PAIRS=()
-  while read -r bucket; do
-    [[ -z "${bucket}" ]] && continue
-    local bucket_region
-    bucket_region=$(aws s3api get-bucket-location \
-      --bucket "${bucket}" \
-      --query 'LocationConstraint' \
-      --output text 2>/dev/null || echo "us-east-1")
-    [[ "${bucket_region}" == "None" ]] && bucket_region="us-east-1"
-    [[ "${bucket_region}" != "${region}" ]] && continue
-    local slug; slug=$(slugify "${bucket}")
-    LIVE_PAIRS+=("aws_s3_bucket.${slug}" "${bucket}")
-  done < <(aws s3api list-buckets \
+  local _all_buckets
+  _all_buckets=$(aws s3api list-buckets \
     --query 'Buckets[].Name' \
     --output text 2>/dev/null | tr '\t' '\n' || true)
+  [[ -z "${_all_buckets}" ]] && return
+
+  # Fetch bucket locations in parallel (throttled to PARALLEL concurrent jobs)
+  local _loc_dir; _loc_dir=$(mktemp -d)
+  while read -r bucket; do
+    [[ -z "${bucket}" ]] && continue
+    while [[ $(jobs -rp | wc -l | tr -d ' ') -ge "${PARALLEL}" ]]; do
+      sleep 0.1
+    done
+    (
+      local loc
+      loc=$(aws s3api get-bucket-location \
+        --bucket "${bucket}" \
+        --query 'LocationConstraint' \
+        --output text 2>/dev/null || echo "us-east-1")
+      [[ "${loc}" == "None" || -z "${loc}" ]] && loc="us-east-1"
+      printf '%s\t%s\n' "${bucket}" "${loc}" > "${_loc_dir}/${bucket}"
+    ) &
+  done <<< "${_all_buckets}"
+  wait
+
+  while IFS=$'\t' read -r bucket loc; do
+    [[ "${loc}" != "${region}" ]] && continue
+    tag_match "${bucket}" || continue
+    local slug; slug=$(slugify "${bucket}")
+    LIVE_PAIRS+=("aws_s3_bucket.${slug}" "${bucket}")
+  done < <(cat "${_loc_dir}"/* 2>/dev/null | sort || true)
+  rm -rf "${_loc_dir}"
 }
 
 scan_vpc() {
@@ -445,6 +356,7 @@ scan_eks() {
     --query 'clusters[]' \
     --output text 2>/dev/null || true)
   for cluster in ${clusters}; do
+    tag_match "${cluster}" || continue
     local slug; slug=$(slugify "${cluster}")
     LIVE_PAIRS+=("aws_eks_cluster.cluster_${slug}" "${cluster}")
     while read -r ng; do
@@ -472,6 +384,7 @@ scan_ecs() {
   local region="$1"; LIVE_PAIRS=()
   while read -r cluster_arn; do
     [[ -z "${cluster_arn}" ]] && continue
+    tag_match "${cluster_arn}" || continue
     local cluster_name; cluster_name=$(basename "${cluster_arn}")
     local slug; slug=$(slugify "${cluster_name}")
     LIVE_PAIRS+=("aws_ecs_cluster.${slug}" "${cluster_name}")
@@ -495,6 +408,7 @@ scan_lambda() {
   local region="$1"; LIVE_PAIRS=()
   while read -r fn_name; do
     [[ -z "${fn_name}" ]] && continue
+    tag_match "${fn_name}" || continue
     local slug; slug=$(slugify "${fn_name}")
     LIVE_PAIRS+=("aws_lambda_function.${slug}" "${fn_name}")
   done < <(aws lambda list-functions \
@@ -507,6 +421,7 @@ scan_rds() {
   local region="$1"; LIVE_PAIRS=()
   while read -r db_id; do
     [[ -z "${db_id}" ]] && continue
+    tag_match "${db_id}" || continue
     local slug; slug=$(slugify "${db_id}")
     LIVE_PAIRS+=("aws_db_instance.${slug}" "${db_id}")
   done < <(aws rds describe-db-instances \
@@ -515,6 +430,7 @@ scan_rds() {
     --output text 2>/dev/null | tr '\t' '\n' || true)
   while read -r cluster_id; do
     [[ -z "${cluster_id}" ]] && continue
+    tag_match "${cluster_id}" || continue
     local slug; slug=$(slugify "${cluster_id}")
     LIVE_PAIRS+=("aws_rds_cluster.${slug}" "${cluster_id}")
   done < <(aws rds describe-db-clusters \
@@ -527,6 +443,7 @@ scan_dynamodb() {
   local region="$1"; LIVE_PAIRS=()
   while read -r table; do
     [[ -z "${table}" ]] && continue
+    tag_match "${table}" || continue
     local slug; slug=$(slugify "${table}")
     LIVE_PAIRS+=("aws_dynamodb_table.${slug}" "${table}")
   done < <(aws dynamodb list-tables \
@@ -589,6 +506,7 @@ scan_elb() {
   local region="$1"; LIVE_PAIRS=()
   while IFS=$'\t' read -r lb_arn lb_name; do
     [[ -z "${lb_arn}" ]] && continue
+    tag_match "${lb_arn}" || continue
     local slug; slug=$(slugify "${lb_name}")
     LIVE_PAIRS+=("aws_lb.${slug}" "${lb_arn}")
   done < <(aws elbv2 describe-load-balancers \
@@ -662,6 +580,7 @@ scan_secretsmanager() {
   local region="$1"; LIVE_PAIRS=()
   while IFS=$'\t' read -r secret_arn secret_name; do
     [[ -z "${secret_arn}" ]] && continue
+    tag_match "${secret_arn}" || continue
     local slug; slug=$(slugify "${secret_name}")
     LIVE_PAIRS+=("aws_secretsmanager_secret.${slug}" "${secret_arn}")
   done < <(aws secretsmanager list-secrets \
@@ -706,6 +625,7 @@ scan_cloudwatch() {
   local region="$1"; LIVE_PAIRS=()
   while read -r lg_name; do
     [[ -z "${lg_name}" ]] && continue
+    tag_match "${lg_name}" || continue
     local slug; slug=$(slugify "${lg_name}")
     LIVE_PAIRS+=("aws_cloudwatch_log_group.${slug}" "${lg_name}")
   done < <(aws logs describe-log-groups \
@@ -1303,10 +1223,15 @@ scan_lightsail() {
 
 # ---------------------------------------------------------------------------
 # Service dispatcher
+#
+# LIVE_PAIRS is used as a "return value" by each scan_* function: every
+# scan_* resets it to () at entry and appends pairs to it.  The caller
+# (_scan_svc_to_tmp) immediately serialises it to a file so it is never
+# read across function boundaries or subshell boundaries.
 # ---------------------------------------------------------------------------
 scan_service() {
   local svc="$1" account="$2" region="$3"
-  LIVE_PAIRS=()
+  # Note: individual scan_* functions reset LIVE_PAIRS themselves.
   case "${svc}" in
     ec2)            scan_ec2            "${region}" ;;
     ebs)            scan_ebs            "${region}" ;;
@@ -1371,9 +1296,10 @@ scan_service() {
 # declared once regardless of how many regions are swept.
 _scan_svc_to_tmp() {
   local _svc="$1" _account="$2" _region="$3" _tmp="$4"
-  LIVE_PAIRS=()
+  # scan_service calls a scan_* function which resets and fills LIVE_PAIRS.
+  # Serialise to file immediately — this is the only place LIVE_PAIRS is read.
   scan_service "${_svc}" "${_account}" "${_region}"
-  printf '%s\n' "${LIVE_PAIRS[@]}" > "${_tmp}"
+  printf '%s\n' "${LIVE_PAIRS[@]+"${LIVE_PAIRS[@]}"}" > "${_tmp}"
 }
 
 # Temp file receives auth/permission warnings from the aws() wrapper even
@@ -1425,7 +1351,7 @@ for account in "${ACCOUNT_LIST[@]}"; do
     # Phase 1 — Parallel scan: each service writes LIVE_PAIRS to a temp file
     # -----------------------------------------------------------------------
     # Use a temp directory: each service's output is ${_SVC_TMPDIR}/${service}
-    local _SVC_TMPDIR; _SVC_TMPDIR=$(mktemp -d)
+    _SVC_TMPDIR=$(mktemp -d)
 
     for service in "${SERVICE_LIST[@]}"; do
       service="${service// /}"
@@ -1467,7 +1393,7 @@ for account in "${ACCOUNT_LIST[@]}"; do
       fi
 
       # Build lookup of live IDs: TSV file with id\taddr per line
-      local _live_ids_file; _live_ids_file=$(mktemp)
+      _live_ids_file=$(mktemp)
       i=0
       while [[ $i -lt ${#LIVE_PAIRS[@]} ]]; do
         addr="${LIVE_PAIRS[$i]}"
@@ -1528,7 +1454,7 @@ for account in "${ACCOUNT_LIST[@]}"; do
         if [[ ${#removed_addrs[@]} -gt 0 ]]; then
           report "  REMOVED  (${#removed_addrs[@]} resource(s) in imports.tf, no longer in AWS)"
           for addr in "${removed_addrs[@]}"; do
-            local _kid; _kid=$(awk -F'\t' -v k="${addr}" '$1==k{print $2;exit}' "${_KNOWN_ADDRS_FILE}")
+            _kid=$(awk -F'\t' -v k="${addr}" '$1==k{print $2;exit}' "${_KNOWN_ADDRS_FILE}")
             report "    - ${addr}  (id: ${_kid:-unknown})"
           done
         fi

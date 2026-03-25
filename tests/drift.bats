@@ -109,3 +109,59 @@ teardown() {
   # Should not report NEW or REMOVED
   [[ ! "$output" =~ "NEW" ]] || true
 }
+
+# ---------------------------------------------------------------------------
+# --apply: add new and comment out stale blocks
+# ---------------------------------------------------------------------------
+
+@test "--apply appends new import block to imports.tf" {
+  mock_response "ec2 describe-instances" \
+    "i-0brandnew	new-server"
+  run bash "${DRIFT}" \
+    --apply \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services ec2 \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  local imports_tf="${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2/imports.tf"
+  # New resource should now be in imports.tf
+  grep -q 'i-0brandnew' "${imports_tf}"
+}
+
+@test "--apply comments out stale import block" {
+  # EC2 returns empty — i-0existing is no longer in AWS
+  mock_response "ec2 describe-instances" ""
+  run bash "${DRIFT}" \
+    --apply \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services ec2 \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  local imports_tf="${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2/imports.tf"
+  # Stale block should be commented out, not deleted
+  grep -q '# \[drift\.sh\]' "${imports_tf}"
+  grep -q 'i-0existing' "${imports_tf}"
+  # The active (non-commented) import block should be gone
+  ! grep -q '^import {' "${imports_tf}"
+}
+
+@test "--apply preserves existing unchanged blocks" {
+  # EC2 returns the existing resource plus a new one
+  mock_response "ec2 describe-instances" \
+    "$(printf 'i-0existing\tmy-server\ni-0new\tnew-server')"
+  run bash "${DRIFT}" \
+    --apply \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services ec2 \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  local imports_tf="${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2/imports.tf"
+  # Original block must still be present and uncommented
+  grep -q '^import {' "${imports_tf}"
+  grep -q 'i-0existing' "${imports_tf}"
+  # New block also appended
+  grep -q 'i-0new' "${imports_tf}"
+}

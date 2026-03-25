@@ -180,13 +180,11 @@ teardown() {
   grep -q 'aws_eks_fargate_profile' "${imports_tf}"
 }
 
-@test "export_cognito paginates user pools via NextToken" {
-  # Page 1: returns 2 pools + a NextToken
+@test "export_cognito writes import blocks for user pools" {
+  # The simple mock can't return different pages per call (--next-token is stripped
+  # from the key), so we return all pools in one page with no NextToken.
   mock_response "cognito-idp list-user-pools" \
-    '{"UserPools":[{"Id":"us-east-1_AAAA","Name":"pool-a"},{"Id":"us-east-1_BBBB","Name":"pool-b"}],"NextToken":"token-page-2"}'
-  # Page 2: returns 1 pool + no NextToken
-  # We can't easily mock different responses per call in the simple mock,
-  # so we verify the first page is captured correctly.
+    '{"UserPools":[{"Id":"us-east-1_AAAA","Name":"pool-a"},{"Id":"us-east-1_BBBB","Name":"pool-b"}]}'
   mock_response "cognito-idp list-user-pool-clients" \
     '{"UserPoolClients":[]}'
   mock_response "cognito-identity list-identity-pools" \
@@ -222,22 +220,125 @@ teardown() {
   grep -q 'dup_name_2' "${imports_tf}"
 }
 
-@test "--resume skips already-completed service directories" {
+@test "--output-format rejects invalid value" {
+  run bash "${TERRACLAIM}" --output-format xml --dry-run \
+    --accounts 123456789012 --regions us-east-1 --services ec2
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "--output-format must be" ]]
+}
+
+@test "--since rejects invalid date format" {
+  run bash "${TERRACLAIM}" --since 01-01-2025 --dry-run \
+    --accounts 123456789012 --regions us-east-1 --services ec2
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "--since must be in YYYY-MM-DD" ]]
+}
+
+@test "--exclude-services skips listed service" {
+  # Even though mock returns data, the service should be skipped
   mock_response "ec2 describe-instances" \
-    "i-0abc123def456\tmy-server"
-  # First run writes files
+    "i-0abc123\tmy-server"
+  run bash "${TERRACLAIM}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services ec2 \
+    --exclude-services ec2 \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [ ! -d "${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2" ]
+}
+
+@test "export_s3 writes import block for bucket in matching region" {
+  mock_response "s3api list-buckets" "my-bucket"
+  mock_response "s3api get-bucket-location" "us-east-1"
+  run bash "${TERRACLAIM}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services s3 \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  local imports_tf="${_TC_OUTPUT_DIR}/123456789012/us-east-1/s3/imports.tf"
+  [ -f "${imports_tf}" ]
+  grep -q 'aws_s3_bucket' "${imports_tf}"
+  grep -q 'my-bucket' "${imports_tf}"
+}
+
+@test "export_lambda writes import block" {
+  mock_response "lambda list-functions" \
+    "$(printf 'my-function\t2025-01-01T00:00:00Z')"
+  mock_response "lambda get-function" "None"
+  run bash "${TERRACLAIM}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services lambda \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  local imports_tf="${_TC_OUTPUT_DIR}/123456789012/us-east-1/lambda/imports.tf"
+  [ -f "${imports_tf}" ]
+  grep -q 'aws_lambda_function' "${imports_tf}"
+  grep -q 'my-function' "${imports_tf}"
+}
+
+@test "export_kms writes import block" {
+  mock_response "kms list-keys" \
+    "$(printf 'abc-123-def\tarn:aws:kms:us-east-1:123456789012:key/abc-123-def')"
+  run bash "${TERRACLAIM}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services kms \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  local imports_tf="${_TC_OUTPUT_DIR}/123456789012/us-east-1/kms/imports.tf"
+  [ -f "${imports_tf}" ]
+  grep -q 'aws_kms_key' "${imports_tf}"
+  grep -q 'abc-123-def' "${imports_tf}"
+}
+
+@test "summary.txt is written with correct total count" {
+  mock_response "ec2 describe-instances" \
+    "$(printf 'i-0aaa\tserver-a\ni-0bbb\tserver-b')"
   run bash "${TERRACLAIM}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services ec2 \
     --output "${_TC_OUTPUT_DIR}"
   [ "$status" -eq 0 ]
-  local first_mtime
-  first_mtime=$(stat -f '%m' "${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2/imports.tf" 2>/dev/null \
-    || stat -c '%Y' "${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2/imports.tf")
+  [ -f "${_TC_OUTPUT_DIR}/summary.txt" ]
+  grep -q 'Total import blocks written: 2' "${_TC_OUTPUT_DIR}/summary.txt"
+}
 
-  # Second run with --resume should skip ec2 (already checkpointed)
-  # Change mock to return different data — if resume works, imports.tf won't change
+@test "--output-format json writes summary.json" {
+  mock_response "ec2 describe-instances" \
+    "i-0abc123\tmy-server"
+  run bash "${TERRACLAIM}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services ec2 \
+    --output-format json \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [ -f "${_TC_OUTPUT_DIR}/summary.json" ]
+  grep -q '"total_imports"' "${_TC_OUTPUT_DIR}/summary.json"
+}
+
+@test "--resume skips already-completed service directories" {
+  mock_response "ec2 describe-instances" \
+    "i-0abc123def456\tmy-server"
+  # First run (without --resume) writes files
+  run bash "${TERRACLAIM}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services ec2 \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [ -f "${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2/imports.tf" ]
+
+  # Simulate a previous interrupted --resume run by seeding the checkpoint file.
+  # (The checkpoint is cleared on success, so it only persists across interruptions.)
+  echo "123456789012/us-east-1/ec2" > "${_TC_OUTPUT_DIR}/.terraclaim-checkpoint"
+
+  # Second run with --resume should see the checkpoint and skip ec2.
+  # Change mock to return different data — if resume works, imports.tf won't change.
   mock_response "ec2 describe-instances" \
     "i-DIFFERENT\tdifferent-server"
   run bash "${TERRACLAIM}" \
@@ -247,6 +348,7 @@ teardown() {
     --services ec2 \
     --output "${_TC_OUTPUT_DIR}"
   [ "$status" -eq 0 ]
-  # imports.tf should still have the original content
+  # imports.tf should still have the original content — ec2 was skipped
   grep -q 'i-0abc123def456' "${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2/imports.tf"
+  ! grep -q 'i-DIFFERENT' "${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2/imports.tf"
 }

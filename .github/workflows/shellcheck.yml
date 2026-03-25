@@ -18,3 +18,5 @@ jobs:
           scandir: '.'
           severity: warning
           ignore_paths: deploy-wordpress.sh
+          additional_files: ''
+          check_together: 'yes'

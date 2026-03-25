@@ -36,7 +36,7 @@
       --radius: 12px;
     }
 
-    html { scroll-behavior: smooth; }
+    html { scroll-behavior: smooth; scroll-padding-top: 68px; }
 
     body {
       background: var(--bg);
@@ -82,6 +82,54 @@
     }
 
     .nav-links a:hover { color: var(--text); }
+
+    /* TAB STRIP — sits below hero, sticks to top while scrolling */
+    #tab-strip {
+      position: sticky;
+      top: 60px;
+      left: 0; right: 0;
+      z-index: 99;
+      display: flex;
+      justify-content: center;
+      padding: 0.75rem 0;
+      background: rgba(10, 13, 20, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* TAB SWITCHER */
+    .tab-bar {
+      display: flex;
+      gap: 0.25rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.25rem;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 0.875rem;
+      font-weight: 600;
+      padding: 0.45rem 3rem;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: background 0.18s, color 0.18s;
+      letter-spacing: 0.01em;
+    }
+
+    .tab-btn:hover { color: var(--text); }
+
+    .tab-btn.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    /* hide/show tab panels */
+    .tab-panel { display: block; }
+    .tab-panel.hidden { display: none; }
 
     .btn-gh {
       display: flex;
@@ -608,12 +656,6 @@
 <nav>
   <a class="nav-logo" href="#"><span>terra</span>claim</a>
   <div class="nav-links">
-    <a href="#why-hard">Why it's hard</a>
-    <a href="#how-it-works">How it works</a>
-    <a href="#services">Services</a>
-    <a href="#drift">Drift detection</a>
-    <a href="#run">Automation</a>
-    <a href="#quickstart">Quickstart</a>
     <a class="btn-gh" href="https://github.com/andrewbakercloudscale/terraclaim" target="_blank" rel="noopener">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       GitHub
@@ -661,10 +703,16 @@
   </div>
 </section>
 
-<hr class="divider" />
+<!-- TAB STRIP — always visible below hero -->
+<div id="tab-strip">
+  <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
+  <button class="tab-btn" onclick="switchTab('deepdive')">Deep Dive</button>
+</div>
+
+<hr class="divider" data-tab="overview" />
 
 <!-- WHY HARD -->
-<section id="why-hard">
+<section id="why-hard" data-tab="overview">
   <div class="section-label">Context</div>
   <h2>Why this is hard, and why most guides get it wrong</h2>
   <p class="section-intro" style="max-width:100%;">
@@ -705,10 +753,10 @@
   </div>
 </section>
 
-<hr class="divider" />
+<hr class="divider" data-tab="overview" />
 
 <!-- HOW IT WORKS -->
-<section id="how-it-works">
+<section id="how-it-works" data-tab="overview">
   <div class="section-label">How it works</div>
   <h2>From live AWS to Terraform in minutes</h2>
   <p class="section-intro">
@@ -733,16 +781,16 @@
     </div>
     <div class="step">
       <div class="step-num">STEP 04</div>
-      <h3>Detect drift</h3>
-      <p>Run <code>drift.sh</code> regularly to catch resources created or deleted outside Terraform. Use <code>--apply</code> to patch <code>imports.tf</code> automatically.</p>
+      <h3>Detect drift &amp; report</h3>
+      <p>Run <code>drift.sh</code> regularly to catch resources created or deleted outside Terraform. Use <code>--apply</code> to patch <code>imports.tf</code>, then <code>report.sh</code> to generate a Markdown summary.</p>
     </div>
   </div>
 </section>
 
-<hr class="divider" />
+<hr class="divider" data-tab="overview" />
 
 <!-- SERVICES -->
-<section id="services">
+<section id="services" data-tab="overview">
   <div class="section-label">Supported services</div>
   <h2>50+ AWS services covered</h2>
   <p class="section-intro">All the core services you need to bring a real-world AWS estate under Terraform control.</p>
@@ -826,10 +874,10 @@
   </div>
 </section>
 
-<hr class="divider" />
+<hr class="divider" data-tab="deepdive" />
 
 <!-- OUTPUT -->
-<section id="output">
+<section id="output" data-tab="deepdive">
   <div class="section-label">Output</div>
   <h2>Clean, structured Terraform files</h2>
   <p class="section-intro">Each service gets its own directory with three files that Terraform can use immediately.</p>
@@ -881,10 +929,10 @@
   </div>
 </section>
 
-<hr class="divider" />
+<hr class="divider" data-tab="deepdive" />
 
 <!-- DRIFT -->
-<section id="drift">
+<section id="drift" data-tab="deepdive">
   <div class="section-label">Drift detection</div>
   <h2>Stay in sync after day one</h2>
   <p class="section-intro">
@@ -905,7 +953,7 @@
     <div class="step">
       <div class="step-num">CI</div>
       <h3>Run on a schedule</h3>
-      <p>Drop <code>drift.sh</code> into a nightly CI job. Pipe the output to Slack or write it to <code>--report</code> to track drift over time.</p>
+      <p>Drop <code>drift.sh</code> into a nightly CI job. Pass <code>--report ./drift.txt</code> to save output, then feed it into <code>report.sh</code> to generate a Markdown summary.</p>
     </div>
   </div>
 
@@ -932,12 +980,115 @@ Removed (stale):          1</pre>
   </div>
 </section>
 
-<hr class="divider" />
+<hr class="divider" data-tab="deepdive" />
 
-<hr class="divider" />
+<!-- REPORT -->
+<section id="report" data-tab="deepdive">
+  <div class="section-label">Reporting</div>
+  <h2>One-command Markdown reports</h2>
+  <p class="section-intro">
+    <code>report.sh</code> reads any <code>terraclaim.sh</code> output directory and generates a clean Markdown document — service breakdown, import counts, and an optional drift section from a <code>drift.sh --report</code> file.
+  </p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">MD</div>
+      <h3>Markdown output</h3>
+      <p>Write to stdout or pass <code>--out report.md</code>. Paste it into a PR description, Confluence, or a GitHub wiki — it renders instantly.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">DRIFT</div>
+      <h3>Drift section included</h3>
+      <p>Pass <code>--drift ./drift.txt</code> (produced by <code>drift.sh --report</code>) to append a NEW / REMOVED breakdown to the same document.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">CI</div>
+      <h3>Commit it to git</h3>
+      <p>Run <code>report.sh</code> at the end of every nightly drift job and commit <code>report.md</code> to a <code>infra-reports</code> branch — instant audit trail with no extra tooling.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:2rem;">
+    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Usage</h3>
+<pre><span class="cm"># basic — prints to stdout</span>
+./report.sh --output ./tf-output
+
+<span class="cm"># with drift section, write to file</span>
+./drift.sh --output ./tf-output --report ./drift.txt
+./report.sh --output ./tf-output \
+  --drift  ./drift.txt \
+  --title  <span class="str">"Production AWS Report — March 2026"</span> \
+  --out    report.md</pre>
+    </div>
+  </div>
+
+  <div style="margin-top:1.5rem;">
+    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Example report output — account 987267051295 / af-south-1</h3>
+<pre><span class="kw"># Production AWS Report — March 2026</span>
+
+<span class="cm">**Generated:** 2026-03-25T11:06:09Z</span>
+<span class="cm">**Output directory:** `./tf-output`</span>
+
+---
+
+<span class="kw">## Summary</span>
+
+| | |
+|---|---|
+| <span class="str">**Account(s)**</span> | `987267051295` |
+| <span class="str">**Region(s)**</span>  | af-south-1 |
+| <span class="str">**Total import blocks**</span> | <span class="kw">**366**</span> |
+
+<span class="kw">## Resources by Service</span>
+
+### 987267051295 / af-south-1
+
+| Service | Import blocks |
+|---------|--------------|
+| `config`        | 319 |
+| `kms`           |   9 |
+| `vpc`           |   9 |
+| `sns`           |   8 |
+| `eventbridge`   |   4 |
+| `lambda`        |   4 |
+| `ebs`           |   3 |
+| `s3`            |   3 |
+| `ec2`           |   2 |
+| `servicecatalog`|   2 |
+| `acm`           |   1 |
+| `backup`        |   1 |
+| `sqs`           |   1 |
+
+---
+
+<span class="kw">## Drift Report</span>
+
+| Status | Count |
+|--------|-------|
+| Unchanged              | 358 |
+| New (not yet imported) |   0 |
+| <span class="kw">Removed (stale)</span>       |   <span class="kw">8</span> |
+
+<span class="cm">### 987267051295 / af-south-1 / vpc</span>
+<span class="kw">**REMOVED  (8 resource(s) in imports.tf, no longer in AWS)**</span>
+
+- `- aws_subnet.defaultvpcsubnetb  (id: subnet-93d3d4eb)`
+- `- aws_subnet.defaultvpcsubnetc  (id: subnet-52557418)`
+- `- aws_subnet.defaultvpcsubneta  (id: subnet-b156b3d8)`
+- `- aws_security_group.cloudflare_proxy  (id: sg-02c2539d27ffe5a5f)`
+- `- aws_security_group.launch_wizard_6  (id: sg-011a26aef17beff13)`
+- `- aws_security_group.launch_wizard_7  (id: sg-024bd977787fb2789)`
+- `- aws_route_table.defaultroutetable  (id: rtb-6157b208)`
+- `- aws_internet_gateway.defaultvpcigw  (id: igw-5a56b333)`</pre>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" data-tab="deepdive" />
 
 <!-- RUN -->
-<section id="run">
+<section id="run" data-tab="deepdive">
   <div class="section-label">Workflow automation</div>
   <h2>One command to rule them all</h2>
   <p class="section-intro">
@@ -952,7 +1103,7 @@ Removed (stale):          1</pre>
       <p>Finds every directory with an <code>imports.tf</code> and runs Terraform in it. Filter by account, region, or service to process a subset.</p>
     </div>
     <div class="step">
-      <div class="step-num">PAR</div>
+      <div class="step-num">×5</div>
       <h3>Parallel runs</h3>
       <p>Up to <code>--parallel 3</code> concurrent Terraform processes by default. Logs per directory, pass/fail/no-change summary at the end.</p>
     </div>
@@ -991,7 +1142,7 @@ Failed:                       1</pre>
 </section>
 
 <!-- QUICKSTART -->
-<section id="quickstart">
+<section id="quickstart" data-tab="overview">
   <div class="section-label">Quickstart</div>
   <h2>Up and running in four commands</h2>
   <p class="section-intro">Three tools required: AWS CLI v2, Terraform 1.5+, and jq. Works on the Bash that ships with macOS (3.2+).</p>
@@ -1003,7 +1154,7 @@ Failed:                       1</pre>
         <h3>Clone the repo</h3>
         <pre>git clone https://github.com/andrewbakercloudscale/terraclaim.git
 cd terraclaim
-chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
+chmod +x terraclaim.sh reconcile.sh drift.sh run.sh report.sh</pre>
       </div>
     </div>
     <div class="qs-step">
@@ -1073,7 +1224,32 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
   </div>
 </section>
 
-<hr class="divider" />
+<hr class="divider" data-tab="deepdive" />
+
+<!-- QUALITY -->
+<section id="quality" data-tab="deepdive" style="text-align:center;padding:3rem 1rem;">
+  <div class="section-label">Quality</div>
+  <h2>Tested before every commit</h2>
+  <p class="section-intro" style="max-width:640px;margin:0 auto 2rem;">
+    A 55-test BATS suite (mock AWS CLI, no real credentials needed) and ShellCheck static analysis run automatically via a pre-commit hook and GitHub Actions CI — blocking any commit or push that introduces a regression.
+  </p>
+  <div style="display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;">
+    <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
+      <div style="font-size:2rem;font-weight:800;color:var(--accent);">55</div>
+      <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">automated tests</div>
+    </div>
+    <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
+      <div style="font-size:2rem;font-weight:800;color:var(--accent2);">4</div>
+      <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">test suites<br><span style="font-size:0.8rem;opacity:0.7;">terraclaim · drift · reconcile · common</span></div>
+    </div>
+    <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
+      <div style="font-size:2rem;font-weight:800;color:#d4f700;">0</div>
+      <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">real AWS credentials needed<br><span style="font-size:0.8rem;opacity:0.7;">mock AWS CLI in tests/helpers/</span></div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" data-tab="deepdive" />
 
 <!-- FOOTER -->
 <footer>
@@ -1093,6 +1269,21 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh</pre>
     <a href="https://github.com/andrewbakercloudscale/terraclaim/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
   </p>
 </footer>
+
+<script>
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.getAttribute('onclick').includes("'" + tab + "'"));
+    });
+    document.querySelectorAll('[data-tab]').forEach(function(el) {
+      el.style.display = el.dataset.tab === tab ? '' : 'none';
+    });
+  }
+  // Init — hide deep dive on load
+  document.querySelectorAll('[data-tab="deepdive"]').forEach(function(el) {
+    el.style.display = 'none';
+  });
+</script>
 
 <script>
   document.querySelectorAll('pre').forEach(function(pre) {

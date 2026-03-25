@@ -9,11 +9,12 @@ COMMON="${BATS_TEST_DIRNAME}/../lib/common.sh"
 
 # Source common.sh with the minimum globals it expects
 _load_common() {
-  DEBUG=false
-  TAGS=""
-  PARALLEL=5
+  export DEBUG=false
+  export TAGS=""
+  export PARALLEL=5
   _AWS_WARN_FILE=$(mktemp)
   _TAG_IDS_FILE=$(mktemp)
+  export _AWS_WARN_FILE _TAG_IDS_FILE
   # shellcheck source=../lib/common.sh
   source "${COMMON}"
 }
@@ -75,20 +76,20 @@ teardown() {
 }
 
 @test "tag_match returns 0 for a resource in the tag IDs file" {
-  TAGS="Env=prod"
+  export TAGS="Env=prod"
   echo "my-bucket" >> "${_TAG_IDS_FILE}"
   tag_match "my-bucket"
 }
 
 @test "tag_match returns 1 for a resource NOT in the tag IDs file" {
-  TAGS="Env=prod"
+  export TAGS="Env=prod"
   echo "other-bucket" >> "${_TAG_IDS_FILE}"
   run tag_match "my-bucket"
   [ "${status}" -ne 0 ]
 }
 
 @test "tag_match uses exact-line matching (no substring matches)" {
-  TAGS="Env=prod"
+  export TAGS="Env=prod"
   echo "my-bucket" >> "${_TAG_IDS_FILE}"
   # "my" alone should not match "my-bucket"
   run tag_match "my"
@@ -106,7 +107,7 @@ teardown() {
     _AWS_WARN_FILE=/dev/null _TAG_IDS_FILE=/dev/null
     log 'hello world'
   "
-  [[ "${output}" =~ "[INFO]" ]]
+  [[ "${output}" =~ \[INFO\] ]]
   [[ "${output}" =~ "hello world" ]]
 }
 
@@ -117,7 +118,7 @@ teardown() {
     _AWS_WARN_FILE=/dev/null _TAG_IDS_FILE=/dev/null
     debug 'debug msg'
   "
-  [[ "${output}" =~ "[DEBUG]" ]]
+  [[ "${output}" =~ \[DEBUG\] ]]
 }
 
 @test "debug produces no output when DEBUG=false" {

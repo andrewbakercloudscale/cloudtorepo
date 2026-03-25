@@ -1149,6 +1149,60 @@ Failed:                       1</pre>
   </div>
 </section>
 
+<hr class="divider" data-tab="deepdive" />
+
+<!-- IMPORT -->
+<section id="importsh" data-tab="deepdive">
+  <div class="section-label">Terraform import</div>
+  <h2>From import blocks to state in one command</h2>
+  <p class="section-intro">
+    After <code>run.sh</code> generates <code>generated.tf</code>, use <code>import.sh</code>
+    to actually call <code>terraform import</code> for every resource — skipping anything
+    already in state automatically.
+  </p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">SKIP</div>
+      <h3>State-aware</h3>
+      <p>Runs <code>terraform state list</code> before each import. Resources already managed are silently skipped — safe to re-run as many times as needed.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">×N</div>
+      <h3>Parallel imports</h3>
+      <p>Pass <code>--parallel N</code> to import multiple service directories concurrently. Per-directory logs in <code>.import.log</code>, pass/fail summary at the end.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">DRY</div>
+      <h3>Preview first</h3>
+      <p><code>--dry-run</code> prints every <code>address (id: ...)</code> pair that would be imported without touching state. Use it to verify scope before committing.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:2rem;">
+    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">import.sh usage</h3>
+<pre><span class="cm"># dry run — see what would be imported</span>
+./import.sh --output ./tf-output --dry-run
+
+<span class="cm"># import everything (sequential)</span>
+./import.sh --output ./tf-output
+
+<span class="cm"># import with parallel workers + auto terraform init</span>
+./import.sh --output ./tf-output --parallel 4 --init
+
+<span class="cm">-------------------------------------------------------</span>
+[INFO]  Importing resources (parallel=4)...
+[INFO]    [123456789012/us-east-1/ec2] importing aws_instance.web (id: i-0abc123)...
+[INFO]    [123456789012/us-east-1/rds] importing aws_db_instance.main (id: mydb)...
+[INFO]  =======================================================
+[INFO]  Resources imported:     47
+[INFO]  Resources skipped:       3  (already in state)
+[INFO]  Resources failed:        0
+[INFO]  =======================================================</pre>
+    </div>
+  </div>
+</section>
+
 <!-- QUICKSTART -->
 <section id="quickstart" data-tab="overview">
   <div class="section-label">Quickstart</div>
@@ -1162,7 +1216,7 @@ Failed:                       1</pre>
         <h3>Clone the repo</h3>
         <pre>git clone https://github.com/andrewbakercloudscale/terraclaim.git
 cd terraclaim
-chmod +x terraclaim.sh reconcile.sh drift.sh run.sh report.sh</pre>
+chmod +x terraclaim.sh reconcile.sh drift.sh run.sh report.sh import.sh</pre>
       </div>
     </div>
     <div class="qs-step">
@@ -1239,16 +1293,16 @@ chmod +x terraclaim.sh reconcile.sh drift.sh run.sh report.sh</pre>
   <div class="section-label">Quality</div>
   <h2>Tested before every commit</h2>
   <p class="section-intro" style="max-width:640px;margin:0 auto 2rem;">
-    An 89-test BATS suite across 6 suites (mock AWS CLI, no real credentials needed) and ShellCheck static analysis run automatically via a pre-commit hook and GitHub Actions CI — blocking any commit or push that introduces a regression.
+    A 111-test BATS suite across 7 suites (mock AWS CLI and Terraform, no real credentials needed) and ShellCheck static analysis run automatically via a pre-commit hook and GitHub Actions CI — blocking any commit or push that introduces a regression.
   </p>
   <div style="display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;">
     <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
-      <div style="font-size:2rem;font-weight:800;color:var(--accent);">89</div>
+      <div style="font-size:2rem;font-weight:800;color:var(--accent);">111</div>
       <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">automated tests</div>
     </div>
     <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
-      <div style="font-size:2rem;font-weight:800;color:var(--accent2);">6</div>
-      <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">test suites<br><span style="font-size:0.8rem;opacity:0.7;">terraclaim · drift · reconcile · report · run · common</span></div>
+      <div style="font-size:2rem;font-weight:800;color:var(--accent2);">7</div>
+      <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">test suites<br><span style="font-size:0.8rem;opacity:0.7;">terraclaim · drift · import · reconcile · report · run · common</span></div>
     </div>
     <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
       <div style="font-size:2rem;font-weight:800;color:#d4f700;">0</div>

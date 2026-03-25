@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.7.1] — 2026-03-25
+
+### Added
+- `tests/import.bats` (12 tests) — full BATS suite for `import.sh` using a
+  mock terraform binary (no real state or credentials needed). Covers flags,
+  `--dry-run`, `--services`/`--regions`/`--accounts` filters, import call
+  verification, and state-skipping behaviour.
+
+### Changed
+- `index.html`: test count updated to 111 (7 suites); `import.sh` section
+  added to Deep Dive tab; `import.sh` added to `chmod +x` quickstart line.
+- README: test table updated to 111 tests / 7 suites; `import.bats` row added.
+
+---
+
 ## [1.7.0] — 2026-03-25
 
 ### Added

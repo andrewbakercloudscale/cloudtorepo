@@ -5,6 +5,68 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.0] — 2026-03-25
+
+### Added
+- `report.sh` — generates a Markdown summary report from any `terraclaim.sh`
+  output directory. Produces an executive summary table, per-region/service
+  import block counts sorted by size, and an optional drift section when a
+  `drift.sh --report` file is supplied. Flags: `--output`, `--drift`, `--title`,
+  `--out`.
+- `lib/common.sh` — shared helper library sourced by both `terraclaim.sh` and
+  `drift.sh`. Single source of truth for: `slugify()`, the AWS CLI retry wrapper
+  (exponential back-off + jitter), `flush_aws_warnings()`, `load_tag_filter()`,
+  `tag_match()`, `assume_role()`, `restore_credentials()`, logging helpers
+  (`log`, `debug`, `err`, `die`), and `_TERRACLAIM_DEFAULT_SERVICES`.
+- `--profile` flag added to `reconcile.sh` — all three scripts now accept a
+  named AWS profile consistently.
+- `scripts/hooks/pre-commit` — git pre-commit hook that runs ShellCheck
+  (`--severity=warning`) on all shell files and the full BATS test suite before
+  every commit. Install with `./scripts/install-hooks.sh`.
+- `scripts/install-hooks.sh` — one-shot installer that copies hooks from
+  `scripts/hooks/` into `.git/hooks/`.
+
+### Fixed
+- `tag_match` calls were missing from 11 `drift.sh` scan functions (`scan_ec2`,
+  `scan_ebs`, `scan_eks`, `scan_ecs`, `scan_lambda`, `scan_rds` ×2,
+  `scan_dynamodb`, `scan_elb`, `scan_secretsmanager`, `scan_cloudwatch`) —
+  resources were not being filtered by `--tags` during drift scans.
+- `reconcile.sh` used `grep -r` without `-h`, causing macOS to prepend
+  `filename:` to every matched line; the import ID regex never matched and
+  coverage was always reported as 0%.
+- `reconcile.sh` coverage matching now also walks all slash-segments of each
+  ARN resource path, enabling composite import IDs (e.g. EKS nodegroup
+  `cluster:nodegroup`) to match against ARNs like
+  `arn:aws:eks:.../nodegroup/cluster/ng/uuid`.
+- `aws()` wrapper used `printf '%s'` which silently dropped the trailing newline
+  stripped by command substitution; the last line of multi-line AWS CLI output
+  was never processed by callers using `while read`.
+- Three `local` declarations in the `drift.sh` main loop body (outside any
+  function) caused a syntax error in strict shells; changed to plain assignments.
+
+### Changed
+- `drift.sh` `scan_s3` parallelised to match `terraclaim.sh` `export_s3` —
+  bucket-location lookups now run concurrently (throttled to `--parallel N`)
+  instead of serially.
+- ShellCheck CI workflow updated to use `check_together: yes` so cross-file
+  variable references (e.g. `TAGS` / `DEBUG` set in the main script and
+  consumed inside `lib/common.sh`) resolve correctly.
+- `index.html` split into **Overview** and **Deep Dive** tabs to reduce page
+  length. Added `report.sh` section with live example output. Added Quality
+  section (55 tests, 4 suites, mock AWS CLI). Updated step labels.
+
+### Tests
+- 40 new BATS tests across four suites (55 total, all passing):
+  - `tests/common.bats` (15) — `slugify`, `tag_match`, `log`/`debug`/`die`
+  - `tests/reconcile.bats` (7) — coverage calculation, composite IDs, ARN matching
+  - `tests/drift.bats` +5 — `--apply` mutations (append new, comment stale,
+    preserve unchanged)
+  - `tests/terraclaim.bats` +10 — `export_s3`, `export_lambda`, `export_kms`,
+    `--output-format json`, `--since` validation, `--exclude-services`,
+    `--resume` checkpoint, `summary.txt` count
+
+---
+
 ## [1.3.0] — 2026-03-24
 
 ### Added

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Terraclaim are documented here.
+All notable changes to CloudtoRepo are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
@@ -59,13 +59,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`LaunchTime`), EBS volumes (`CreateTime`), EKS clusters (`createdAt`),
   Lambda functions (`LastModified`), ECR repositories (`createdAt`), RDS
   instances (`InstanceCreateTime`), and Secrets Manager secrets (`CreatedDate`).
-- `--services list` flag in both `terraclaim.sh` and `drift.sh` — prints all
+- `--services list` flag in both `cloudtorepo.sh` and `drift.sh` — prints all
   supported service names (one per line, sorted) and exits 0. Useful for
   scripting and tab-completion.
 
 ### Added (services)
 - **v1.5.0 services** (6 new): `emr`, `sagemaker`, `organizations`, `xray`,
-  `appconfig`, `bedrock` — exporters in `terraclaim.sh`, scan functions in
+  `appconfig`, `bedrock` — exporters in `cloudtorepo.sh`, scan functions in
   `drift.sh`, registered in `lib/common.sh` default services list.
 - **v1.6.0 services** (3 new): `connect`, `ram`, `servicequotas` — same
   pattern; total supported services now **65+**.
@@ -85,7 +85,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `tests/run.bats` (11) — new suite covering `terraform plan` runner: flags,
     `--services`/`--regions`/`--accounts` filters, `--dry-run`, `--init-only`,
     no-match exit
-  - `tests/terraclaim.bats` +3 — `export_connect`, `export_ram`,
+  - `tests/cloudtorepo.bats` +3 — `export_connect`, `export_ram`,
     `--services list` includes new services
 
 ---
@@ -93,16 +93,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.4.0] — 2026-03-25
 
 ### Added
-- `report.sh` — generates a Markdown summary report from any `terraclaim.sh`
+- `report.sh` — generates a Markdown summary report from any `cloudtorepo.sh`
   output directory. Produces an executive summary table, per-region/service
   import block counts sorted by size, and an optional drift section when a
   `drift.sh --report` file is supplied. Flags: `--output`, `--drift`, `--title`,
   `--out`.
-- `lib/common.sh` — shared helper library sourced by both `terraclaim.sh` and
+- `lib/common.sh` — shared helper library sourced by both `cloudtorepo.sh` and
   `drift.sh`. Single source of truth for: `slugify()`, the AWS CLI retry wrapper
   (exponential back-off + jitter), `flush_aws_warnings()`, `load_tag_filter()`,
   `tag_match()`, `assume_role()`, `restore_credentials()`, logging helpers
-  (`log`, `debug`, `err`, `die`), and `_TERRACLAIM_DEFAULT_SERVICES`.
+  (`log`, `debug`, `err`, `die`), and `_CLOUDTOREPO_DEFAULT_SERVICES`.
 - `--profile` flag added to `reconcile.sh` — all three scripts now accept a
   named AWS profile consistently.
 - `scripts/hooks/pre-commit` — git pre-commit hook that runs ShellCheck
@@ -130,7 +130,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   function) caused a syntax error in strict shells; changed to plain assignments.
 
 ### Changed
-- `drift.sh` `scan_s3` parallelised to match `terraclaim.sh` `export_s3` —
+- `drift.sh` `scan_s3` parallelised to match `cloudtorepo.sh` `export_s3` —
   bucket-location lookups now run concurrently (throttled to `--parallel N`)
   instead of serially.
 - ShellCheck CI workflow updated to use `check_together: yes` so cross-file
@@ -146,7 +146,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `tests/reconcile.bats` (7) — coverage calculation, composite IDs, ARN matching
   - `tests/drift.bats` +5 — `--apply` mutations (append new, comment stale,
     preserve unchanged)
-  - `tests/terraclaim.bats` +10 — `export_s3`, `export_lambda`, `export_kms`,
+  - `tests/cloudtorepo.bats` +10 — `export_s3`, `export_lambda`, `export_kms`,
     `--output-format json`, `--since` validation, `--exclude-services`,
     `--resume` checkpoint, `summary.txt` count
 
@@ -180,7 +180,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.2.0] — 2026-03-24
 
 ### Added
-- `--profile` flag in `terraclaim.sh` and `drift.sh` — pass a named AWS profile
+- `--profile` flag in `cloudtorepo.sh` and `drift.sh` — pass a named AWS profile
   (exported as `AWS_PROFILE`; takes effect before any cross-account role assumption).
 - Pagination for Cognito exports — `cognito-idp list-user-pools` and
   `cognito-identity list-identity-pools` now follow `NextToken` until all
@@ -205,33 +205,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `--regions`, `--accounts`, `--init-only`, and `--dry-run` flags.
 - `drift.sh` — drift detection without AWS Resource Explorer; diffs live AWS against
   existing `imports.tf` files; `--apply` patches files in place automatically.
-- `--parallel N` flag in `terraclaim.sh` and `drift.sh` (default: 5) — scans up to N services
+- `--parallel N` flag in `cloudtorepo.sh` and `drift.sh` (default: 5) — scans up to N services
   concurrently within each account/region using bash job control.
-- `--exclude-services` flag in `terraclaim.sh` and `drift.sh` — skip services managed separately.
-- `--version` flag in `terraclaim.sh`.
+- `--exclude-services` flag in `cloudtorepo.sh` and `drift.sh` — skip services managed separately.
+- `--version` flag in `cloudtorepo.sh`.
 - Automatic AWS API throttle retry with exponential back-off and jitter in both
-  `terraclaim.sh` and `drift.sh`. Up to 5 retries on `ThrottlingException`,
+  `cloudtorepo.sh` and `drift.sh`. Up to 5 retries on `ThrottlingException`,
   `RequestLimitExceeded`, `SlowDown`, and related errors.
 - 13 new services: `kinesis`, `cognito`, `cloudtrail`, `guardduty`, `backup`, `redshift`,
   `glue`, `ses`, `codepipeline`, `codebuild`, `documentdb`, `fsx`, `transfer`.
-- `sync.sh` — deploys `index.html` to S3 + invalidates CloudFront for terraclaim.org.
+- `sync.sh` — deploys `index.html` to S3 + invalidates CloudFront for cloudtorepo.com.
 - `CONTRIBUTING.md` — contributing guide with service addition checklist.
-- `index.html` — terraclaim.org homepage (single-page, no framework).
+- `index.html` — cloudtorepo.com homepage (single-page, no framework).
 - `favicon.svg` — purple `tc` favicon.
 
 ### Changed
-- Renamed from `aws-tf-reverse` to **Terraclaim**; script renamed to `terraclaim.sh`.
+- Renamed from `aws-tf-reverse` to **CloudtoRepo**; script renamed to `cloudtorepo.sh`.
 - Total service coverage: **45+ services** across 10 categories.
 - `reconcile.sh` updated to remove all `aws-tf-reverse` references.
 
 ### Added
-- Initial release as **Terraclaim** (renamed from `aws-tf-reverse`).
-- `terraclaim.sh` — main exporter; scans AWS and generates `import {}` blocks,
+- Initial release as **CloudtoRepo** (renamed from `aws-tf-reverse`).
+- `cloudtorepo.sh` — main exporter; scans AWS and generates `import {}` blocks,
   `backend.tf`, and `resources.tf` per account/region/service.
 - `drift.sh` — drift detection without AWS Resource Explorer; diffs live AWS against
   existing `imports.tf` files; `--apply` patches files in place.
 - `reconcile.sh` — coverage check via AWS Resource Explorer aggregator index.
-- `sync.sh` — deploys `index.html` to S3 and invalidates CloudFront for terraclaim.org.
+- `sync.sh` — deploys `index.html` to S3 and invalidates CloudFront for cloudtorepo.com.
 - 45+ supported services across Compute, Networking, Data, Streaming, Integration,
   Security, Platform, Auth, ETL, and Storage categories.
 - Multi-account support via cross-account IAM role assumption (`--role`).

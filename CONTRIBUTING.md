@@ -1,4 +1,4 @@
-# Contributing to Terraclaim
+# Contributing to CloudtoRepo
 
 Thank you for your interest in contributing!
 
@@ -21,7 +21,7 @@ significantly speeds up implementation.
 2. Make your changes.
 3. Ensure ShellCheck passes locally (the pre-commit hook does this automatically — install with `./scripts/install-hooks.sh`):
    ```bash
-   shellcheck --severity=warning terraclaim.sh drift.sh reconcile.sh report.sh run.sh import.sh sync.sh lib/common.sh tests/*.bats
+   shellcheck --severity=warning cloudtorepo.sh drift.sh reconcile.sh report.sh run.sh import.sh sync.sh lib/common.sh tests/*.bats
    ```
 4. Run the bats test suite (requires `bats-core` — `brew install bats-core`):
    ```bash
@@ -35,7 +35,7 @@ significantly speeds up implementation.
 ## Adding support for a new service
 
 Each service is implemented as a single `export_<service>()` function in
-`terraclaim.sh`.  Follow the pattern of an existing exporter:
+`cloudtorepo.sh`.  Follow the pattern of an existing exporter:
 
 1. **List resources** using the AWS CLI with `--output text`.
 2. **Build `imports` and `types` arrays** — each pair is a Terraform resource
@@ -47,7 +47,7 @@ Each service is implemented as a single `export_<service>()` function in
 6. **Add a matching `scan_<service>()` function in `drift.sh`** — same AWS CLI
    calls but populating `LIVE_PAIRS` only (no file I/O). Register it in
    `scan_service` and add to the `SERVICES` default in `drift.sh`.
-7. **Add bats tests** in `tests/terraclaim.bats` — at minimum one test that
+7. **Add bats tests** in `tests/cloudtorepo.bats` — at minimum one test that
    mocks the AWS response and asserts the expected resource type appears in
    `imports.tf`. Add a matching scan detection test in `tests/drift.bats`.
 8. **Document** the service in the README supported-services table and the

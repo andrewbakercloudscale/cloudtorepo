@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# terraclaim.sh — Reverse-engineer an AWS estate into Terraform import blocks.
+# cloudtorepo.sh — Reverse-engineer an AWS estate into Terraform import blocks.
 #
 # Generates backend.tf, imports.tf, and resources.tf per account/region/service
 # so you can run `terraform plan -generate-config-out=generated.tf` to capture
@@ -8,7 +8,7 @@
 # Requirements: aws-cli >= 2, terraform >= 1.5, jq >= 1.6
 #
 # Usage:
-#   ./terraclaim.sh [OPTIONS]
+#   ./cloudtorepo.sh [OPTIONS]
 #
 # Options:
 #   --accounts  "id1,id2"           Comma-separated account IDs (default: current)
@@ -42,7 +42,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 ACCOUNTS=""
 REGIONS="us-east-1"
 PROFILE=""
-SERVICES="${_TERRACLAIM_DEFAULT_SERVICES}"
+SERVICES="${_CLOUDTOREPO_DEFAULT_SERVICES}"
 EXCLUDE_SERVICES=""
 TAGS=""
 ROLE_NAME=""
@@ -75,7 +75,7 @@ while [[ $# -gt 0 ]]; do
     --regions)      REGIONS="$2";      shift 2 ;;
     --services)
       if [[ "$2" == "list" ]]; then
-        echo "${_TERRACLAIM_DEFAULT_SERVICES}" | tr ',' '\n' | sort
+        echo "${_CLOUDTOREPO_DEFAULT_SERVICES}" | tr ',' '\n' | sort
         exit 0
       fi
       SERVICES="$2"; shift 2 ;;
@@ -93,7 +93,7 @@ while [[ $# -gt 0 ]]; do
     --resume)            RESUME=true;             shift ;;
     --dry-run)           DRY_RUN=true;            shift ;;
     --debug)             DEBUG=true;              shift ;;
-    --version)          echo "terraclaim ${VERSION}"; exit 0 ;;
+    --version)          echo "cloudtorepo ${VERSION}"; exit 0 ;;
     --help|-h)          usage ;;
     *) die "Unknown option: $1 — run with --help for usage." ;;
   esac
@@ -2626,7 +2626,7 @@ SUMMARY_FILE="${OUTPUT_DIR}/summary.txt"
 if ! "${DRY_RUN}"; then
   mkdir -p "${OUTPUT_DIR}"
   {
-    echo "terraclaim summary"
+    echo "cloudtorepo summary"
     echo "Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     echo "Accounts:  ${ACCOUNTS}"
     echo "Regions:   ${REGIONS}"
@@ -2636,7 +2636,7 @@ if ! "${DRY_RUN}"; then
 fi
 
 if "${RESUME}"; then
-  CHECKPOINT_FILE="${OUTPUT_DIR}/.terraclaim-checkpoint"
+  CHECKPOINT_FILE="${OUTPUT_DIR}/.cloudtorepo-checkpoint"
   touch "${CHECKPOINT_FILE}"
   log "Resume mode enabled — checkpoint: ${CHECKPOINT_FILE}"
 fi

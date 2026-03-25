@@ -110,7 +110,7 @@ teardown() {
 # ---------------------------------------------------------------------------
 
 @test "composite colon ID (cluster:nodegroup) matches via token" {
-  # terraclaim uses "cluster-name:nodegroup-name" as the EKS nodegroup import ID
+  # cloudtorepo uses "cluster-name:nodegroup-name" as the EKS nodegroup import ID
   _make_output 'import {
   to = aws_eks_node_group.ng_my_cluster_my_ng
   id = "my-cluster:my-ng"

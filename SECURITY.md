@@ -20,7 +20,7 @@ You can expect an acknowledgement within 72 hours and a fix or mitigation plan w
 
 ## Scope
 
-Terraclaim is a collection of Bash scripts that call the AWS CLI and Terraform on your
+CloudtoRepo is a collection of Bash scripts that call the AWS CLI and Terraform on your
 local machine using your own credentials. It does not run as a service, store credentials,
 or make network calls beyond what the AWS CLI and Terraform do normally.
 

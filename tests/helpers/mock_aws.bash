@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for Terraclaim bats tests.
+# Shared helpers for CloudtoRepo bats tests.
 # Load with: load 'helpers/mock_aws'
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ exit 0
 MOCK_EOF
   chmod +x "${_TC_MOCK_DIR}/aws"
 
-  # Also mock terraform and jq so terraclaim.sh dependency checks pass
+  # Also mock terraform and jq so cloudtorepo.sh dependency checks pass
   cat > "${_TC_MOCK_DIR}/terraform" << 'EOF'
 #!/usr/bin/env bash
 if [[ "$1" == "version" ]]; then

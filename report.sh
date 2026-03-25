@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# report.sh — Generate a Markdown summary report from a terraclaim output directory.
+# report.sh — Generate a Markdown summary report from a cloudtorepo output directory.
 #
-# Reads the directory structure produced by terraclaim.sh and optionally a drift
+# Reads the directory structure produced by cloudtorepo.sh and optionally a drift
 # report file produced by drift.sh --report, then writes a Markdown document.
 #
 # Requirements: bash 3.2+, awk, sort, grep
@@ -10,9 +10,9 @@
 #   ./report.sh [OPTIONS]
 #
 # Options:
-#   --output  "./tf-output"   Output directory from terraclaim.sh  (required)
+#   --output  "./tf-output"   Output directory from cloudtorepo.sh  (required)
 #   --drift   "./drift.txt"   Drift report file from drift.sh --report (optional)
-#   --title   "My Report"     Report title (default: "Terraclaim Infrastructure Report")
+#   --title   "My Report"     Report title (default: "CloudtoRepo Infrastructure Report")
 #   --out     "./report.md"   Write report to file instead of stdout
 #   --help                    Show this help
 
@@ -23,7 +23,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 OUTPUT_DIR="./tf-output"
 DRIFT_FILE=""
-TITLE="Terraclaim Infrastructure Report"
+TITLE="CloudtoRepo Infrastructure Report"
 OUT_FILE=""
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ if [[ -n "${OUT_FILE}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Read terraclaim summary metadata
+# Read cloudtorepo summary metadata
 # ---------------------------------------------------------------------------
 SUMMARY_FILE="${OUTPUT_DIR}/summary.txt"
 GENERATED=""
@@ -245,7 +245,7 @@ if [[ -n "${DRIFT_FILE}" ]]; then
     fi
   done < <(grep -v '^Summary' "${DRIFT_FILE}" | grep -v '^---' | grep -v '^Unchanged' | \
            grep -v 'New (not yet' | grep -v 'Removed (stale)' | grep -v '^Run with' | \
-           grep -v '^Terraclaim Drift' | grep -v '^Generated:' | grep -v '^Output dir' | \
+           grep -v '^CloudtoRepo Drift' | grep -v '^Generated:' | grep -v '^Output dir' | \
            grep -v '^Mode:')
 
   if [[ "${in_detail}" == "false" && "${drift_new}" -eq 0 && "${drift_removed}" -eq 0 ]]; then

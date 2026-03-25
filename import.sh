@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# import.sh — Run `terraform import` for every resource in a terraclaim output directory.
+# import.sh — Run `terraform import` for every resource in a cloudtorepo output directory.
 #
 # Walks the tf-output tree, reads each imports.tf file, and runs
 # `terraform import <address> <id>` for every resource not already present in
@@ -12,7 +12,7 @@
 #   ./import.sh [OPTIONS]
 #
 # Options:
-#   --output    "./tf-output"   Root output directory from terraclaim.sh (default: ./tf-output)
+#   --output    "./tf-output"   Root output directory from cloudtorepo.sh (default: ./tf-output)
 #   --services  "ec2,eks"       Limit to specific services (default: all)
 #   --regions   "us-east-1"     Limit to specific regions (default: all)
 #   --accounts  "123456789012"  Limit to specific accounts (default: all)
@@ -74,7 +74,7 @@ done
 # ---------------------------------------------------------------------------
 command -v terraform &>/dev/null || die "Required command not found: terraform"
 
-[[ -d "${OUTPUT_DIR}" ]] || die "Output directory not found: ${OUTPUT_DIR}. Run terraclaim.sh first."
+[[ -d "${OUTPUT_DIR}" ]] || die "Output directory not found: ${OUTPUT_DIR}. Run cloudtorepo.sh first."
 
 # ---------------------------------------------------------------------------
 # Build list of directories to process (same filter logic as run.sh)
@@ -110,7 +110,7 @@ done < <(find "${OUTPUT_DIR}" -name "imports.tf" | sort)
 
 if [[ ${#DIRS[@]} -eq 0 ]]; then
   log "No service directories found under ${OUTPUT_DIR}."
-  log "Run terraclaim.sh first to generate import blocks."
+  log "Run cloudtorepo.sh first to generate import blocks."
   exit 0
 fi
 

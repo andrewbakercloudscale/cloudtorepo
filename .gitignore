@@ -15,9 +15,9 @@ generated.tf
 deploy-wordpress.sh
 
 # Temp image variants
-terraclaim_*.jpeg
-terraclaim_small.*
-terraclaim_e_small.*
+cloudtorepo_*.jpeg
+cloudtorepo_small.*
+cloudtorepo_e_small.*
 
 # Local development tooling (not part of the project)
 .claude-flow/

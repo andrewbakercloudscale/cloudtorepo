@@ -1,23 +1,23 @@
 <p align="center">
-  <img src="terraclaim.jpg" alt="Terraclaim" width="160" />
+  <img src="cloudtorepo.png" alt="CloudtoRepo" width="320" />
 </p>
 
-# Terraclaim
+# CloudtoRepo
 
-[![Release](https://img.shields.io/github/v/release/andrewbakercloudscale/terraclaim)](https://github.com/andrewbakercloudscale/terraclaim/releases)
+[![Release](https://img.shields.io/github/v/release/andrewbakercloudscale/cloudtorepo)](https://github.com/andrewbakercloudscale/cloudtorepo/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![ShellCheck](https://github.com/andrewbakercloudscale/terraclaim/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/andrewbakercloudscale/terraclaim/actions/workflows/shellcheck.yml)
+[![ShellCheck](https://github.com/andrewbakercloudscale/cloudtorepo/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/andrewbakercloudscale/cloudtorepo/actions/workflows/shellcheck.yml)
 
-Claim your AWS estate as Terraform — using scripts, not click-ops.
+Reverse-engineer your AWS estate into Terraform — using scripts, not click-ops.
 
-`terraclaim` scans your AWS account(s) and generates ready-to-use Terraform
+`cloudtorepo` scans your AWS account(s) and generates ready-to-use Terraform
 `import {}` blocks (Terraform >= 1.5) together with resource skeletons and S3
 remote-state backends.  After running the script you can execute
 `terraform plan -generate-config-out=generated.tf` in any service directory to
 capture the full live configuration automatically.
 
 Explained in detail on the blog:
-<https://andrewbaker.ninja/2026/03/21/reverse-engineering-your-aws-estate-into-terraform-using-terraclaim-org/>
+<https://andrewbaker.ninja/2026/03/21/reverse-engineering-your-aws-estate-into-terraform-using-cloudtorepo-org/>
 
 ---
 
@@ -41,15 +41,15 @@ jq --version
 ## Quick start
 
 ```bash
-git clone https://github.com/andrewbakercloudscale/terraclaim.git
-cd terraclaim
-chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
+git clone https://github.com/andrewbakercloudscale/cloudtorepo.git
+cd cloudtorepo
+chmod +x cloudtorepo.sh reconcile.sh drift.sh examples/*.sh
 ```
 
 ### 1. Dry-run — preview resource counts without writing files
 
 ```bash
-./terraclaim.sh \
+./cloudtorepo.sh \
   --regions "us-east-1" \
   --services "ec2,vpc,rds" \
   --dry-run
@@ -58,7 +58,7 @@ chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
 ### 2. Single account with S3 remote state
 
 ```bash
-./terraclaim.sh \
+./cloudtorepo.sh \
   --regions "us-east-1,eu-west-1" \
   --services "ec2,eks,rds,s3,vpc" \
   --state-bucket my-tf-state-prod \
@@ -69,7 +69,7 @@ chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
 ### 3. Multi-account organisation sweep
 
 ```bash
-./terraclaim.sh \
+./cloudtorepo.sh \
   --accounts "123456789012,234567890123,345678901234" \
   --role OrganizationAccountAccessRole \
   --regions "us-east-1,eu-west-1,ap-southeast-2" \
@@ -81,7 +81,7 @@ chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
 ### 4. Named AWS profile
 
 ```bash
-./terraclaim.sh \
+./cloudtorepo.sh \
   --profile prod-readonly \
   --regions "eu-west-1" \
   --services "ec2,vpc,rds,eks" \
@@ -213,7 +213,7 @@ directories succeeded, had no changes, or failed.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--output` | Output directory from `terraclaim.sh` | `./tf-output` |
+| `--output` | Output directory from `cloudtorepo.sh` | `./tf-output` |
 | `--services` | Limit to specific services | All |
 | `--regions` | Limit to specific regions | All |
 | `--accounts` | Limit to specific accounts | All |
@@ -254,7 +254,7 @@ resources imported, skipped (already in state), and failed.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--output` | Output directory from `terraclaim.sh` | `./tf-output` |
+| `--output` | Output directory from `cloudtorepo.sh` | `./tf-output` |
 | `--services` | Limit to specific services | All |
 | `--regions` | Limit to specific regions | All |
 | `--accounts` | Limit to specific accounts | All |
@@ -298,7 +298,7 @@ Resource Explorer must be enabled with an **aggregator index** in `--index-regio
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--output` | Output directory from `terraclaim.sh` | `./tf-output` |
+| `--output` | Output directory from `cloudtorepo.sh` | `./tf-output` |
 | `--index-region` | Region containing the Resource Explorer aggregator index | `us-east-1` |
 | `--accounts` | Comma-separated account IDs to filter results | All in index |
 | `--profile` | AWS named profile (`AWS_PROFILE`) | — |
@@ -331,7 +331,7 @@ requires no additional AWS services — it uses only the AWS CLI.
 Sample output:
 
 ```
-Terraclaim Drift Report
+CloudtoRepo Drift Report
 Generated: 2026-03-24T10:00:00Z
 =======================================================
 
@@ -357,7 +357,7 @@ Run with --apply to update imports.tf files automatically.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--output` | Output directory from `terraclaim.sh` | `./tf-output` |
+| `--output` | Output directory from `cloudtorepo.sh` | `./tf-output` |
 | `--accounts` | Comma-separated account IDs | Current account |
 | `--regions` | Comma-separated regions | `us-east-1` |
 | `--services` | Comma-separated services, or `list` to print all supported services | All supported services |
@@ -390,7 +390,7 @@ Run with --apply to update imports.tf files automatically.
 ## IAM permissions
 
 The principal running the scripts needs **read-only** access to the services you want
-to scan. No write permissions are required for `terraclaim.sh`, `drift.sh`, or `report.sh`.
+to scan. No write permissions are required for `cloudtorepo.sh`, `drift.sh`, or `report.sh`.
 `reconcile.sh` additionally requires AWS Resource Explorer read access.
 
 ### Minimum IAM policy
@@ -402,7 +402,7 @@ Attach this managed policy (or an inline equivalent) to the IAM role or user:
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "TerraclaimReadOnly",
+      "Sid": "CloudtorepoReadOnly",
       "Effect": "Allow",
       "Action": [
         "acm:ListCertificates",
@@ -464,7 +464,7 @@ Attach this managed policy (or an inline equivalent) to the IAM role or user:
       "Resource": "*"
     },
     {
-      "Sid": "TerraclaimTagFilter",
+      "Sid": "CloudtorepoTagFilter",
       "Effect": "Allow",
       "Action": [
         "tag:GetResources"
@@ -472,7 +472,7 @@ Attach this managed policy (or an inline equivalent) to the IAM role or user:
       "Resource": "*"
     },
     {
-      "Sid": "TerraclaimMultiAccount",
+      "Sid": "CloudtorepoMultiAccount",
       "Effect": "Allow",
       "Action": [
         "sts:AssumeRole"
@@ -480,7 +480,7 @@ Attach this managed policy (or an inline equivalent) to the IAM role or user:
       "Resource": "arn:aws:iam::*:role/*"
     },
     {
-      "Sid": "TerraclaimReconcile",
+      "Sid": "CloudtorepoReconcile",
       "Effect": "Allow",
       "Action": [
         "resource-explorer-2:Search",
@@ -494,8 +494,8 @@ Attach this managed policy (or an inline equivalent) to the IAM role or user:
 }
 ```
 
-> **Note:** The `TerraclaimMultiAccount` statement is only needed when using `--role`
-> for cross-account sweeps. The `TerraclaimReconcile` statement is only needed for
+> **Note:** The `CloudtorepoMultiAccount` statement is only needed when using `--role`
+> for cross-account sweeps. The `CloudtorepoReconcile` statement is only needed for
 > `reconcile.sh`. You can omit either block if you don't use those features.
 
 ---
@@ -508,7 +508,7 @@ Terraform binary — no real AWS credentials or Terraform state needed.
 
 | File | Tests | What it tests |
 |------|------:|--------------|
-| `tests/terraclaim.bats` | 26 | Main scanner: flags, service exporters, slug dedup, `--resume`, `--output-format`, `--since`, `--exclude-services`, `--services list` |
+| `tests/cloudtorepo.bats` | 26 | Main scanner: flags, service exporters, slug dedup, `--resume`, `--output-format`, `--since`, `--exclude-services`, `--services list` |
 | `tests/drift.bats` | 26 | Drift detection: NEW/REMOVED reporting, `--apply` mutations, `--dry-run`, `--services list`, 13 scan functions |
 | `tests/import.bats` | 13 | Terraform import runner: flags, filters, `--dry-run`, `--parallel`, state-skipping, import call verification |
 | `tests/reconcile.bats` | 8 | Coverage calculation: simple IDs, ARN-as-ID, composite IDs, missed resources, `--local` |
@@ -531,7 +531,7 @@ sudo bats-core/install.sh /usr/local
 
 ```bash
 # Individual suites
-bats tests/terraclaim.bats
+bats tests/cloudtorepo.bats
 bats tests/drift.bats
 bats tests/import.bats
 bats tests/reconcile.bats
@@ -548,7 +548,7 @@ returns fixture data set per-test via `mock_response`. Real `jq` is required.
 
 Shared helper functions (`log`, `debug`, `slugify`, AWS retry wrapper, tag filtering,
 cross-account role assumption) live in `lib/common.sh` and are sourced by both
-`terraclaim.sh` and `drift.sh`.
+`cloudtorepo.sh` and `drift.sh`.
 
 ---
 

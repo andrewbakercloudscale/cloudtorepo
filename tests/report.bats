@@ -86,7 +86,7 @@ teardown() {
 @test "generates Markdown title from summary.txt" {
   run bash "${REPORT}" --output "${_TC_OUTPUT_DIR}"
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "# Terraclaim Infrastructure Report" ]]
+  [[ "$output" =~ "# CloudtoRepo Infrastructure Report" ]]
 }
 
 @test "--title overrides the default report title" {
@@ -144,7 +144,7 @@ teardown() {
   # stdout should be empty (redirected to file)
   [ -z "$output" ]
   # file should contain the report
-  grep -q "Terraclaim Infrastructure Report" "${out_file}"
+  grep -q "CloudtoRepo Infrastructure Report" "${out_file}"
   rm -f "${out_file}"
 }
 
@@ -155,7 +155,7 @@ teardown() {
 @test "drift section appears when --drift is supplied" {
   _DRIFT_FILE=$(mktemp)
   cat > "${_DRIFT_FILE}" << 'EOF'
-Terraclaim Drift Report
+CloudtoRepo Drift Report
 Generated: 2026-03-25T10:00:00Z
 Output dir: ./tf-output
 Mode: report-only
@@ -179,7 +179,7 @@ EOF
 @test "no-drift message shown when drift file has 0 new and 0 removed" {
   _DRIFT_FILE=$(mktemp)
   cat > "${_DRIFT_FILE}" << 'EOF'
-Terraclaim Drift Report
+CloudtoRepo Drift Report
 Generated: 2026-03-25T10:00:00Z
 Summary
 Unchanged:                5

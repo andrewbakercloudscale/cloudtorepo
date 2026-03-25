@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run.sh — Run `terraform init` + `terraform plan -generate-config-out=generated.tf`
-# for every service directory produced by terraclaim.sh.
+# for every service directory produced by cloudtorepo.sh.
 #
 # Walks the tf-output tree looking for directories that contain an imports.tf
 # file and runs Terraform in each one. A summary at the end shows which
@@ -10,7 +10,7 @@
 #   ./run.sh [OPTIONS]
 #
 # Options:
-#   --output    "./tf-output"   Root output directory from terraclaim.sh (default: ./tf-output)
+#   --output    "./tf-output"   Root output directory from cloudtorepo.sh (default: ./tf-output)
 #   --services  "ec2,eks"       Limit to specific services (default: all)
 #   --regions   "us-east-1"     Limit to specific regions (default: all)
 #   --accounts  "123456789012"  Limit to specific accounts (default: all)
@@ -75,7 +75,7 @@ done
 # ---------------------------------------------------------------------------
 command -v terraform &>/dev/null || die "Required command not found: terraform"
 
-[[ -d "${OUTPUT_DIR}" ]] || die "Output directory not found: ${OUTPUT_DIR}. Run terraclaim.sh first."
+[[ -d "${OUTPUT_DIR}" ]] || die "Output directory not found: ${OUTPUT_DIR}. Run cloudtorepo.sh first."
 
 # ---------------------------------------------------------------------------
 # Build list of directories to process
@@ -123,7 +123,7 @@ done < <(find "${OUTPUT_DIR}" -name "imports.tf" | sort)
 
 if [[ ${#DIRS[@]} -eq 0 ]]; then
   log "No service directories found under ${OUTPUT_DIR}."
-  log "Run terraclaim.sh first to generate import blocks."
+  log "Run cloudtorepo.sh first to generate import blocks."
   exit 0
 fi
 
@@ -158,12 +158,12 @@ process_dir() {
   {
     echo "=== terraform init ==="
     if ! terraform -chdir="${dir}" init -upgrade -input=false 2>&1; then
-      echo "TERRACLAIM_RESULT=FAIL"
+      echo "CLOUDTOREPO_RESULT=FAIL"
       return
     fi
 
     if "${INIT_ONLY}"; then
-      echo "TERRACLAIM_RESULT=PASS"
+      echo "CLOUDTOREPO_RESULT=PASS"
       return
     fi
 
@@ -178,16 +178,16 @@ process_dir() {
     echo "${plan_out}"
 
     if [[ $plan_ec -ne 0 ]]; then
-      echo "TERRACLAIM_RESULT=FAIL"
+      echo "CLOUDTOREPO_RESULT=FAIL"
     elif echo "${plan_out}" | grep -q "No changes"; then
-      echo "TERRACLAIM_RESULT=NOCHANGE"
+      echo "CLOUDTOREPO_RESULT=NOCHANGE"
     else
-      echo "TERRACLAIM_RESULT=PASS"
+      echo "CLOUDTOREPO_RESULT=PASS"
     fi
   } > "${logfile}" 2>&1
 
   local result
-  result=$(grep '^TERRACLAIM_RESULT=' "${logfile}" | tail -1 | cut -d= -f2)
+  result=$(grep '^CLOUDTOREPO_RESULT=' "${logfile}" | tail -1 | cut -d= -f2)
   printf '%s\t%s\n' "${result:-FAIL}" "${rel}"
 }
 
@@ -232,7 +232,7 @@ log "--------"
 for dir in "${DIRS[@]}"; do
   rel="${dir#${OUTPUT_DIR}/}"
   logfile="${dir}/.run.log"
-  result=$(grep '^TERRACLAIM_RESULT=' "${logfile}" 2>/dev/null | tail -1 | cut -d= -f2 || echo "FAIL")
+  result=$(grep '^CLOUDTOREPO_RESULT=' "${logfile}" 2>/dev/null | tail -1 | cut -d= -f2 || echo "FAIL")
 
   case "${result}" in
     PASS)     _PASS=$((_PASS+1));     log "  [OK]        ${rel}" ;;

@@ -24,7 +24,7 @@
 #   --tags      "Env=prod,Team=sre" Only import resources with these tags (requires Resource Groups Tagging API)
 #   --account-parallel  N           Max concurrent account scans (default: 1, set > 1 for multi-account sweeps)
 #   --output-format "text|json"     Output format for summary file (default: text; json writes summary.json)
-#   --since "YYYY-MM-DD"            Only import resources created/modified on or after this date (best-effort; applies to lambda, ecr, rds)
+#   --since "YYYY-MM-DD"            Only import resources created/modified on or after this date (best-effort; applies to ec2, ebs, eks, lambda, ecr, rds)
 #   --resume                        Skip account/region/service combinations already written to the output dir
 #   --dry-run                       Print resource counts; do not write files
 #   --debug                         Verbose logging
@@ -73,7 +73,12 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --accounts)     ACCOUNTS="$2";     shift 2 ;;
     --regions)      REGIONS="$2";      shift 2 ;;
-    --services)     SERVICES="$2";     shift 2 ;;
+    --services)
+      if [[ "$2" == "list" ]]; then
+        echo "${_TERRACLAIM_DEFAULT_SERVICES}" | tr ',' '\n' | sort
+        exit 0
+      fi
+      SERVICES="$2"; shift 2 ;;
     --profile)      PROFILE="$2";      shift 2 ;;
     --role)         ROLE_NAME="$2";    shift 2 ;;
     --state-bucket) STATE_BUCKET="$2"; shift 2 ;;
@@ -278,8 +283,9 @@ export_ec2() {
   local account="$1" region="$2" path="$3"
   local imports=() types=()
   log "  [ec2] listing instances..."
-  while IFS=$'\t' read -r instance_id name_tag; do
+  while IFS=$'\t' read -r instance_id name_tag launch_time; do
     [[ -z "${instance_id}" ]] && continue
+    [[ -n "${SINCE}" && "${launch_time:0:10}" < "${SINCE}" ]] && continue
     tag_match "${instance_id}" || continue
     local slug; slug=$(slugify "${name_tag:-${instance_id}}")
     imports+=("aws_instance.${slug}" "${instance_id}")
@@ -287,7 +293,7 @@ export_ec2() {
   done < <(aws ec2 describe-instances \
     --region "${region}" \
     --filters "Name=instance-state-name,Values=running,stopped" \
-    --query 'Reservations[].Instances[].[InstanceId, Tags[?Key==`Name`].Value|[0]]' \
+    --query 'Reservations[].Instances[].[InstanceId, Tags[?Key==`Name`].Value|[0], LaunchTime]' \
     --output text 2>/dev/null || true)
 
   [[ ${#imports[@]} -eq 0 ]] && { debug "  [ec2] no instances found"; return; }
@@ -303,15 +309,16 @@ export_ebs() {
   local account="$1" region="$2" path="$3"
   local imports=() types=()
   log "  [ebs] listing volumes..."
-  while IFS=$'\t' read -r vol_id name_tag; do
+  while IFS=$'\t' read -r vol_id name_tag create_time; do
     [[ -z "${vol_id}" ]] && continue
+    [[ -n "${SINCE}" && "${create_time:0:10}" < "${SINCE}" ]] && continue
     tag_match "${vol_id}" || continue
     local slug; slug=$(slugify "${name_tag:-${vol_id}}")
     imports+=("aws_ebs_volume.${slug}" "${vol_id}")
     types+=("aws_ebs_volume.${slug}")
   done < <(aws ec2 describe-volumes \
     --region "${region}" \
-    --query 'Volumes[].[VolumeId, Tags[?Key==`Name`].Value|[0]]' \
+    --query 'Volumes[].[VolumeId, Tags[?Key==`Name`].Value|[0], CreateTime]' \
     --output text 2>/dev/null || true)
 
   [[ ${#imports[@]} -eq 0 ]] && { debug "  [ebs] no volumes found"; return; }
@@ -465,6 +472,12 @@ export_eks() {
     --output text 2>/dev/null || true)
 
   for cluster in ${clusters}; do
+    if [[ -n "${SINCE}" ]]; then
+      local _created_at
+      _created_at=$(aws eks describe-cluster --name "${cluster}" --region "${region}" \
+        --query 'cluster.createdAt' --output text 2>/dev/null || true)
+      [[ -n "${_created_at}" && "${_created_at:0:10}" < "${SINCE}" ]] && continue
+    fi
     tag_match "${cluster}" || continue
     local slug; slug=$(slugify "${cluster}")
     imports+=("aws_eks_cluster.cluster_${slug}" "${cluster}")
@@ -2126,6 +2139,207 @@ export_lightsail() {
   write_resources_tf "${path}" "${types[@]}"
 }
 
+export_emr() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [emr] listing clusters..."
+  while IFS=$'\t' read -r cluster_id name; do
+    [[ -z "${cluster_id}" ]] && continue
+    tag_match "${cluster_id}" || continue
+    local slug; slug=$(slugify "${name:-${cluster_id}}")
+    imports+=("aws_emr_cluster.${slug}" "${cluster_id}")
+    types+=("aws_emr_cluster.${slug}")
+  done < <(aws emr list-clusters \
+    --active \
+    --region "${region}" \
+    --query 'Clusters[].[Id, Name]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [emr] no clusters found"; return; }
+  log "  [emr] found $((${#imports[@]}/2)) EMR clusters"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "emr"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_sagemaker() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [sagemaker] listing domains and endpoints..."
+
+  while read -r domain_id; do
+    [[ -z "${domain_id}" ]] && continue
+    local slug; slug=$(slugify "${domain_id}")
+    imports+=("aws_sagemaker_domain.${slug}" "${domain_id}")
+    types+=("aws_sagemaker_domain.${slug}")
+  done < <(aws sagemaker list-domains \
+    --region "${region}" \
+    --query 'Domains[].DomainId' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  while IFS=$'\t' read -r endpoint_name; do
+    [[ -z "${endpoint_name}" ]] && continue
+    local slug; slug=$(slugify "${endpoint_name}")
+    imports+=("aws_sagemaker_endpoint.${slug}" "${endpoint_name}")
+    types+=("aws_sagemaker_endpoint.${slug}")
+  done < <(aws sagemaker list-endpoints \
+    --region "${region}" \
+    --query 'Endpoints[].EndpointName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [sagemaker] no resources found"; return; }
+  log "  [sagemaker] found $((${#imports[@]}/2)) SageMaker resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "sagemaker"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_organizations() {
+  # Organizations is global — only meaningful in us-east-1 / management account.
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [organizations] listing accounts..."
+
+  while IFS=$'\t' read -r acct_id acct_name; do
+    [[ -z "${acct_id}" ]] && continue
+    local slug; slug=$(slugify "${acct_name:-${acct_id}}")
+    imports+=("aws_organizations_account.${slug}" "${acct_id}")
+    types+=("aws_organizations_account.${slug}")
+  done < <(aws organizations list-accounts \
+    --query 'Accounts[].[Id, Name]' \
+    --output text 2>/dev/null || true)
+
+  while IFS=$'\t' read -r ou_id ou_name; do
+    [[ -z "${ou_id}" ]] && continue
+    local slug; slug=$(slugify "${ou_name:-${ou_id}}")
+    imports+=("aws_organizations_organizational_unit.${slug}" "${ou_id}")
+    types+=("aws_organizations_organizational_unit.${slug}")
+  done < <(
+    local _root_id
+    _root_id=$(aws organizations list-roots --query 'Roots[0].Id' --output text 2>/dev/null || true)
+    [[ -n "${_root_id}" ]] && aws organizations list-organizational-units-for-parent \
+      --parent-id "${_root_id}" \
+      --query 'OrganizationalUnits[].[Id, Name]' \
+      --output text 2>/dev/null || true
+  )
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [organizations] no resources found"; return; }
+  log "  [organizations] found $((${#imports[@]}/2)) Organizations resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "organizations"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_xray() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [xray] listing groups and sampling rules..."
+
+  while IFS=$'\t' read -r group_name group_arn; do
+    [[ -z "${group_name}" || "${group_name}" == "Default" ]] && continue
+    local slug; slug=$(slugify "${group_name}")
+    imports+=("aws_xray_group.${slug}" "${group_arn}")
+    types+=("aws_xray_group.${slug}")
+  done < <(aws xray get-groups \
+    --region "${region}" \
+    --query 'Groups[].[GroupName, GroupARN]' \
+    --output text 2>/dev/null || true)
+
+  while IFS=$'\t' read -r rule_name; do
+    [[ -z "${rule_name}" || "${rule_name}" == "Default" ]] && continue
+    local slug; slug=$(slugify "${rule_name}")
+    imports+=("aws_xray_sampling_rule.${slug}" "${rule_name}")
+    types+=("aws_xray_sampling_rule.${slug}")
+  done < <(aws xray get-sampling-rules \
+    --region "${region}" \
+    --query 'SamplingRuleRecords[].SamplingRule.RuleName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [xray] no resources found"; return; }
+  log "  [xray] found $((${#imports[@]}/2)) X-Ray resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "xray"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_appconfig() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [appconfig] listing applications..."
+
+  while IFS=$'\t' read -r app_id app_name; do
+    [[ -z "${app_id}" ]] && continue
+    local slug; slug=$(slugify "${app_name:-${app_id}}")
+    imports+=("aws_appconfig_application.${slug}" "${app_id}")
+    types+=("aws_appconfig_application.${slug}")
+
+    # Environments for this application
+    while IFS=$'\t' read -r env_id env_name; do
+      [[ -z "${env_id}" ]] && continue
+      local env_slug; env_slug=$(slugify "${env_name:-${env_id}}")
+      imports+=("aws_appconfig_environment.${slug}_${env_slug}" "${app_id}/${env_id}")
+      types+=("aws_appconfig_environment.${slug}_${env_slug}")
+    done < <(aws appconfig list-environments \
+      --application-id "${app_id}" \
+      --region "${region}" \
+      --query 'Items[].[Id, Name]' \
+      --output text 2>/dev/null || true)
+  done < <(aws appconfig list-applications \
+    --region "${region}" \
+    --query 'Items[].[Id, Name]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [appconfig] no resources found"; return; }
+  log "  [appconfig] found $((${#imports[@]}/2)) AppConfig resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "appconfig"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
+export_bedrock() {
+  local account="$1" region="$2" path="$3"
+  local imports=() types=()
+  log "  [bedrock] listing knowledge bases and agents..."
+
+  while IFS=$'\t' read -r kb_id kb_name; do
+    [[ -z "${kb_id}" ]] && continue
+    local slug; slug=$(slugify "${kb_name:-${kb_id}}")
+    imports+=("aws_bedrockagent_knowledge_base.${slug}" "${kb_id}")
+    types+=("aws_bedrockagent_knowledge_base.${slug}")
+  done < <(aws bedrock-agent list-knowledge-bases \
+    --region "${region}" \
+    --query 'knowledgeBaseSummaries[].[knowledgeBaseId, name]' \
+    --output text 2>/dev/null || true)
+
+  while IFS=$'\t' read -r agent_id agent_name; do
+    [[ -z "${agent_id}" ]] && continue
+    local slug; slug=$(slugify "${agent_name:-${agent_id}}")
+    imports+=("aws_bedrockagent_agent.${slug}" "${agent_id}")
+    types+=("aws_bedrockagent_agent.${slug}")
+  done < <(aws bedrock-agent list-agents \
+    --region "${region}" \
+    --query 'agentSummaries[].[agentId, agentName]' \
+    --output text 2>/dev/null || true)
+
+  [[ ${#imports[@]} -eq 0 ]] && { debug "  [bedrock] no resources found"; return; }
+  log "  [bedrock] found $((${#imports[@]}/2)) Bedrock resources"
+  "${DRY_RUN}" && return
+  mkdir -p "${path}"
+  write_backend_tf  "${path}" "${account}" "${region}" "bedrock"
+  write_imports_tf  "${path}" "${imports[@]}"
+  write_resources_tf "${path}" "${types[@]}"
+}
+
 # ---------------------------------------------------------------------------
 # Service dispatcher
 # ---------------------------------------------------------------------------
@@ -2185,6 +2399,12 @@ dispatch_service() {
     lakeformation)     export_lakeformation     "${account}" "${region}" "${path}" ;;
     servicecatalog)    export_servicecatalog    "${account}" "${region}" "${path}" ;;
     lightsail)         export_lightsail         "${account}" "${region}" "${path}" ;;
+    emr)               export_emr               "${account}" "${region}" "${path}" ;;
+    sagemaker)         export_sagemaker         "${account}" "${region}" "${path}" ;;
+    organizations)     export_organizations     "${account}" "${region}" "${path}" ;;
+    xray)              export_xray              "${account}" "${region}" "${path}" ;;
+    appconfig)         export_appconfig         "${account}" "${region}" "${path}" ;;
+    bedrock)           export_bedrock           "${account}" "${region}" "${path}" ;;
     *) log "  [WARN] Unknown service '${svc}' — skipping" ;;
   esac
 }

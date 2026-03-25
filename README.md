@@ -344,35 +344,130 @@ Run with --apply to update imports.tf files automatically.
 
 ## IAM permissions
 
-The principal running the script needs read-only access to each service.
-A minimum policy should include actions such as:
+The principal running the scripts needs **read-only** access to the services you want
+to scan. No write permissions are required for `terraclaim.sh`, `drift.sh`, or `report.sh`.
+`reconcile.sh` additionally requires AWS Resource Explorer read access.
 
-- `ec2:Describe*` — instances, volumes, VPCs, subnets, security groups, route tables, IGWs, NAT gateways
-- `eks:List*`, `eks:Describe*` — clusters, node groups, addons, Fargate profiles
-- `rds:Describe*`, `docdb:Describe*`
-- `s3:ListAllMyBuckets`, `s3:GetBucketLocation`
-- `lambda:ListFunctions`, `lambda:GetFunction`
-- `iam:ListRoles`, `iam:ListInstanceProfiles`, `iam:ListOpenIDConnectProviders`
-- `cognito-idp:ListUserPools`, `cognito-idp:ListUserPoolClients`
-- `cognito-identity:ListIdentityPools`
-- `resource-explorer-2:Search`, `resource-explorer-2:GetIndex` (for `reconcile.sh`)
-- `sts:AssumeRole` (for multi-account sweeps)
-- `resourcegroupstaggingapi:GetResources` (for `--tags` filtering)
+### Minimum IAM policy
+
+Attach this managed policy (or an inline equivalent) to the IAM role or user:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TerraclaimReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "acm:ListCertificates",
+        "appconfig:ListApplications", "appconfig:ListEnvironments",
+        "athena:ListWorkGroups", "athena:ListDataCatalogs",
+        "backup:ListBackupPlans", "backup:ListBackupVaults",
+        "bedrock-agent:ListAgents", "bedrock-agent:ListKnowledgeBases",
+        "cloudfront:ListDistributions",
+        "cloudtrail:DescribeTrails",
+        "cloudwatch:DescribeAlarms", "logs:DescribeLogGroups",
+        "codebuild:ListProjects",
+        "codepipeline:ListPipelines",
+        "cognito-idp:ListUserPools", "cognito-idp:ListUserPoolClients",
+        "cognito-identity:ListIdentityPools",
+        "config:DescribeConfigRules", "config:DescribeConfigurationRecorders",
+        "docdb:DescribeDBClusters",
+        "dynamodb:ListTables",
+        "ec2:Describe*",
+        "ecr:DescribeRepositories", "ecr:GetLifecyclePolicy",
+        "ecs:ListClusters", "ecs:ListServices", "ecs:ListTaskDefinitions",
+        "efs:DescribeFileSystems",
+        "eks:ListClusters", "eks:DescribeCluster",
+        "eks:ListNodegroups", "eks:ListAddons", "eks:ListFargateProfiles",
+        "elasticache:DescribeReplicationGroups", "elasticache:DescribeCacheClusters",
+        "elasticbeanstalk:DescribeApplications", "elasticbeanstalk:DescribeEnvironments",
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "emr:ListClusters",
+        "events:ListEventBuses", "events:ListRules",
+        "fsx:DescribeFileSystems",
+        "glue:GetDatabases", "glue:GetJobs", "glue:GetCrawlers",
+        "guardduty:ListDetectors",
+        "iam:ListRoles", "iam:ListPolicies", "iam:ListGroups",
+        "iam:ListInstanceProfiles", "iam:ListOpenIDConnectProviders",
+        "kafka:ListClusters",
+        "kinesis:ListStreams",
+        "kms:ListKeys",
+        "lambda:ListFunctions",
+        "lightsail:GetInstances", "lightsail:GetRelationalDatabases",
+        "memorydb:ListClusters",
+        "opensearch:ListDomainNames",
+        "organizations:ListAccounts", "organizations:ListRoots",
+        "organizations:ListOrganizationalUnitsForParent",
+        "rds:DescribeDBInstances", "rds:DescribeDBClusters",
+        "redshift:DescribeClusters",
+        "route53:ListHostedZones",
+        "s3:ListAllMyBuckets", "s3:GetBucketLocation",
+        "sagemaker:ListDomains", "sagemaker:ListEndpoints",
+        "secretsmanager:ListSecrets",
+        "servicecatalog:ListPortfolios", "servicecatalog:SearchProductsAsAdmin",
+        "ses:ListEmailIdentities",
+        "sns:ListTopics",
+        "sqs:ListQueues",
+        "ssm:DescribeParameters",
+        "stepfunctions:ListStateMachines",
+        "transfer:ListServers",
+        "wafv2:ListWebACLs",
+        "xray:GetGroups", "xray:GetSamplingRules"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "TerraclaimTagFilter",
+      "Effect": "Allow",
+      "Action": [
+        "tag:GetResources"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "TerraclaimMultiAccount",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole"
+      ],
+      "Resource": "arn:aws:iam::*:role/*"
+    },
+    {
+      "Sid": "TerraclaimReconcile",
+      "Effect": "Allow",
+      "Action": [
+        "resource-explorer-2:Search",
+        "resource-explorer-2:GetIndex",
+        "resource-explorer-2:GetView",
+        "resource-explorer-2:ListViews"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+> **Note:** The `TerraclaimMultiAccount` statement is only needed when using `--role`
+> for cross-account sweeps. The `TerraclaimReconcile` statement is only needed for
+> `reconcile.sh`. You can omit either block if you don't use those features.
 
 ---
 
 ## Testing
 
 The `tests/` directory contains a [bats-core](https://bats-core.readthedocs.io/) test suite
-(40+ tests) that exercises all scripts using a mock AWS CLI — no real AWS credentials
-or account needed.
+(75 tests across 5 suites) that exercises all scripts using a mock AWS CLI — no real AWS
+credentials or account needed.
 
-| File | What it tests |
-|------|--------------|
-| `tests/terraclaim.bats` | Main scanner: flags, service exporters, slug dedup, `--resume`, `--output-format`, `--since`, `--exclude-services` |
-| `tests/drift.bats` | Drift detection: NEW/REMOVED reporting, `--apply` mutations |
-| `tests/reconcile.bats` | Coverage calculation: simple IDs, ARN-as-ID, composite IDs, missed resources |
-| `tests/common.bats` | Shared library: `slugify`, `tag_match`, `log`/`debug`/`die` |
+| File | Tests | What it tests |
+|------|------:|--------------|
+| `tests/terraclaim.bats` | 23 | Main scanner: flags, service exporters, slug dedup, `--resume`, `--output-format`, `--since`, `--exclude-services` |
+| `tests/drift.bats` | 17 | Drift detection: NEW/REMOVED reporting, `--apply` mutations, `--dry-run`, `--services list`, scan functions |
+| `tests/reconcile.bats` | 7 | Coverage calculation: simple IDs, ARN-as-ID, composite IDs, missed resources |
+| `tests/report.bats` | 13 | Markdown report: title, summary table, per-service counts, sort order, `--out`, drift section |
+| `tests/common.bats` | 15 | Shared library: `slugify`, `tag_match`, `log`/`debug`/`die` |
 
 **Install bats-core:**
 

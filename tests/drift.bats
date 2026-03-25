@@ -165,3 +165,105 @@ teardown() {
   # New block also appended
   grep -q 'i-0new' "${imports_tf}"
 }
+
+# ---------------------------------------------------------------------------
+# --dry-run
+# ---------------------------------------------------------------------------
+
+@test "--dry-run exits 0 without requiring output dir" {
+  run bash "${DRIFT}" \
+    --dry-run \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services ec2 \
+    --output /nonexistent/path
+  [ "$status" -eq 0 ]
+}
+
+@test "--dry-run does not write files even with --apply" {
+  mock_response "ec2 describe-instances" "i-0new	new-server"
+  run bash "${DRIFT}" \
+    --dry-run \
+    --apply \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services ec2 \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  # --apply should be suppressed: new resource should NOT appear in imports.tf
+  local imports_tf="${_TC_OUTPUT_DIR}/123456789012/us-east-1/ec2/imports.tf"
+  [ ! -f "${imports_tf}" ] || ! grep -q 'i-0new' "${imports_tf}"
+}
+
+# ---------------------------------------------------------------------------
+# --services list
+# ---------------------------------------------------------------------------
+
+@test "--services list prints service names and exits 0" {
+  run bash "${DRIFT}" --services list
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "ec2" ]]
+  [[ "$output" =~ "s3" ]]
+  [[ "$output" =~ "lambda" ]]
+}
+
+# ---------------------------------------------------------------------------
+# scan_* function tests (via drift.sh wrapper)
+# ---------------------------------------------------------------------------
+
+@test "scan_s3 detects new bucket in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/s3"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/s3/imports.tf"
+  mock_response "s3api list-buckets" "my-new-bucket"
+  mock_response "s3api get-bucket-location" "us-east-1"
+  run bash "${DRIFT}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services s3 \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "my-new-bucket" ]]
+}
+
+@test "scan_lambda detects new function in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/lambda"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/lambda/imports.tf"
+  mock_response "lambda list-functions" "$(printf 'my-fn\t2025-01-01T00:00:00.000+0000')"
+  run bash "${DRIFT}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services lambda \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "my-fn" ]]
+}
+
+@test "scan_rds detects new instance in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/rds"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/rds/imports.tf"
+  mock_response "rds describe-db-instances" "$(printf 'mydb\t2025-01-01')"
+  mock_response "rds describe-db-clusters" ""
+  run bash "${DRIFT}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services rds \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "mydb" ]]
+}
+
+@test "scan_eks detects new cluster in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/eks"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/eks/imports.tf"
+  mock_response "eks list-clusters" "my-cluster"
+  mock_response "eks list-nodegroups" ""
+  mock_response "eks list-addons" ""
+  mock_response "eks list-fargate-profiles" ""
+  run bash "${DRIFT}" \
+    --accounts 123456789012 \
+    --regions us-east-1 \
+    --services eks \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "my-cluster" ]]
+}

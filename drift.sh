@@ -23,6 +23,7 @@
 #   --role      "RoleName"             IAM role to assume in each account
 #   --profile   "myprofile"            AWS named profile (overrides AWS_PROFILE env var)
 #   --apply                            Update imports.tf in place (add new, mark removed)
+#   --dry-run                          Scan AWS and report drift without writing any files (implies --apply is ignored)
 #   --report    "./drift-report.txt"   Write report to file in addition to stdout
 #   --parallel  5                      Max concurrent service scans (default: 5, set to 1 to disable)
 #   --exclude-services "svc1,svc2"     Comma-separated services to skip
@@ -46,6 +47,7 @@ TAGS=""
 ROLE_NAME=""
 PROFILE=""
 APPLY=false
+DRY_RUN=false
 REPORT_FILE=""
 PARALLEL=5
 DEBUG=false
@@ -66,10 +68,16 @@ while [[ $# -gt 0 ]]; do
     --output)   OUTPUT_DIR="$2";  shift 2 ;;
     --accounts) ACCOUNTS="$2";    shift 2 ;;
     --regions)  REGIONS="$2";     shift 2 ;;
-    --services) SERVICES="$2";    shift 2 ;;
+    --services)
+      if [[ "$2" == "list" ]]; then
+        echo "${_TERRACLAIM_DEFAULT_SERVICES}" | tr ',' '\n' | sort
+        exit 0
+      fi
+      SERVICES="$2"; shift 2 ;;
     --role)     ROLE_NAME="$2";   shift 2 ;;
     --profile)  PROFILE="$2";     shift 2 ;;
     --apply)            APPLY=true;             shift ;;
+    --dry-run)          DRY_RUN=true;           shift ;;
     --report)           REPORT_FILE="$2";       shift 2 ;;
     --parallel)         PARALLEL="$2";          shift 2 ;;
     --exclude-services) EXCLUDE_SERVICES="$2";  shift 2 ;;
@@ -85,6 +93,8 @@ done
 # ---------------------------------------------------------------------------
 [[ "${PARALLEL}" =~ ^[1-9][0-9]*$ ]] || die "--parallel must be a positive integer (got: '${PARALLEL}')"
 [[ -n "${PROFILE}" ]] && export AWS_PROFILE="${PROFILE}"
+# --dry-run suppresses file writes; --apply is silently ignored
+"${DRY_RUN}" && APPLY=false
 
 # ---------------------------------------------------------------------------
 # Dependency checks
@@ -93,7 +103,9 @@ for cmd in aws jq; do
   command -v "$cmd" &>/dev/null || die "Required command not found: $cmd"
 done
 
-[[ -d "${OUTPUT_DIR}" ]] || die "Output directory not found: ${OUTPUT_DIR}. Run terraclaim.sh first."
+if ! "${DRY_RUN}"; then
+  [[ -d "${OUTPUT_DIR}" ]] || die "Output directory not found: ${OUTPUT_DIR}. Run terraclaim.sh first (or use --dry-run to scan without an existing output directory)."
+fi
 
 IFS=',' read -ra ACCOUNT_LIST <<< "${ACCOUNTS}"
 IFS=',' read -ra REGION_LIST  <<< "${REGIONS}"
@@ -1221,6 +1233,95 @@ scan_lightsail() {
     --output text 2>/dev/null || true)
 }
 
+scan_emr() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r cluster_id name; do
+    [[ -z "${cluster_id}" ]] && continue
+    tag_match "${cluster_id}" || continue
+    LIVE_PAIRS+=("aws_emr_cluster.$(slugify "${name:-${cluster_id}}")" "${cluster_id}")
+  done < <(aws emr list-clusters --active \
+    --region "${region}" --query 'Clusters[].[Id, Name]' \
+    --output text 2>/dev/null || true)
+}
+
+scan_sagemaker() {
+  local region="$1"; LIVE_PAIRS=()
+  while read -r domain_id; do
+    [[ -z "${domain_id}" ]] && continue
+    LIVE_PAIRS+=("aws_sagemaker_domain.$(slugify "${domain_id}")" "${domain_id}")
+  done < <(aws sagemaker list-domains \
+    --region "${region}" --query 'Domains[].DomainId' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+  while read -r endpoint_name; do
+    [[ -z "${endpoint_name}" ]] && continue
+    LIVE_PAIRS+=("aws_sagemaker_endpoint.$(slugify "${endpoint_name}")" "${endpoint_name}")
+  done < <(aws sagemaker list-endpoints \
+    --region "${region}" --query 'Endpoints[].EndpointName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+}
+
+scan_organizations() {
+  local region="$1"; LIVE_PAIRS=()
+  [[ "${region}" != "us-east-1" ]] && return
+  while IFS=$'\t' read -r acct_id acct_name; do
+    [[ -z "${acct_id}" ]] && continue
+    LIVE_PAIRS+=("aws_organizations_account.$(slugify "${acct_name:-${acct_id}}")" "${acct_id}")
+  done < <(aws organizations list-accounts \
+    --query 'Accounts[].[Id, Name]' \
+    --output text 2>/dev/null || true)
+}
+
+scan_xray() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r group_name group_arn; do
+    [[ -z "${group_name}" || "${group_name}" == "Default" ]] && continue
+    LIVE_PAIRS+=("aws_xray_group.$(slugify "${group_name}")" "${group_arn}")
+  done < <(aws xray get-groups \
+    --region "${region}" --query 'Groups[].[GroupName, GroupARN]' \
+    --output text 2>/dev/null || true)
+  while read -r rule_name; do
+    [[ -z "${rule_name}" || "${rule_name}" == "Default" ]] && continue
+    LIVE_PAIRS+=("aws_xray_sampling_rule.$(slugify "${rule_name}")" "${rule_name}")
+  done < <(aws xray get-sampling-rules \
+    --region "${region}" --query 'SamplingRuleRecords[].SamplingRule.RuleName' \
+    --output text 2>/dev/null | tr '\t' '\n' || true)
+}
+
+scan_appconfig() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r app_id app_name; do
+    [[ -z "${app_id}" ]] && continue
+    local slug; slug=$(slugify "${app_name:-${app_id}}")
+    LIVE_PAIRS+=("aws_appconfig_application.${slug}" "${app_id}")
+    while IFS=$'\t' read -r env_id env_name; do
+      [[ -z "${env_id}" ]] && continue
+      local env_slug; env_slug=$(slugify "${env_name:-${env_id}}")
+      LIVE_PAIRS+=("aws_appconfig_environment.${slug}_${env_slug}" "${app_id}/${env_id}")
+    done < <(aws appconfig list-environments \
+      --application-id "${app_id}" \
+      --region "${region}" --query 'Items[].[Id, Name]' \
+      --output text 2>/dev/null || true)
+  done < <(aws appconfig list-applications \
+    --region "${region}" --query 'Items[].[Id, Name]' \
+    --output text 2>/dev/null || true)
+}
+
+scan_bedrock() {
+  local region="$1"; LIVE_PAIRS=()
+  while IFS=$'\t' read -r kb_id kb_name; do
+    [[ -z "${kb_id}" ]] && continue
+    LIVE_PAIRS+=("aws_bedrockagent_knowledge_base.$(slugify "${kb_name:-${kb_id}}")" "${kb_id}")
+  done < <(aws bedrock-agent list-knowledge-bases \
+    --region "${region}" --query 'knowledgeBaseSummaries[].[knowledgeBaseId, name]' \
+    --output text 2>/dev/null || true)
+  while IFS=$'\t' read -r agent_id agent_name; do
+    [[ -z "${agent_id}" ]] && continue
+    LIVE_PAIRS+=("aws_bedrockagent_agent.$(slugify "${agent_name:-${agent_id}}")" "${agent_id}")
+  done < <(aws bedrock-agent list-agents \
+    --region "${region}" --query 'agentSummaries[].[agentId, agentName]' \
+    --output text 2>/dev/null || true)
+}
+
 # ---------------------------------------------------------------------------
 # Service dispatcher
 #
@@ -1285,6 +1386,12 @@ scan_service() {
     lakeformation)     scan_lakeformation     "${region}" ;;
     servicecatalog)    scan_servicecatalog    "${region}" ;;
     lightsail)         scan_lightsail         "${region}" ;;
+    emr)               scan_emr               "${region}" ;;
+    sagemaker)         scan_sagemaker         "${region}" ;;
+    organizations)     scan_organizations     "${region}" ;;
+    xray)              scan_xray              "${region}" ;;
+    appconfig)         scan_appconfig         "${region}" ;;
+    bedrock)           scan_bedrock           "${region}" ;;
     *) log "  [WARN] Unknown service '${svc}' — skipping" ;;
   esac
 }
@@ -1319,7 +1426,13 @@ report ""
 report "Terraclaim Drift Report"
 report "Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 report "Output dir: ${OUTPUT_DIR}"
-"${APPLY}" && report "Mode: apply (imports.tf will be updated)" || report "Mode: report-only (use --apply to update imports.tf)"
+if "${DRY_RUN}"; then
+  report "Mode: dry-run (scan only — no files read or written)"
+elif "${APPLY}"; then
+  report "Mode: apply (imports.tf will be updated)"
+else
+  report "Mode: report-only (use --apply to update imports.tf)"
+fi
 report "======================================================="
 
 if [[ -z "${ACCOUNTS}" ]]; then

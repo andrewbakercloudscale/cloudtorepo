@@ -19,9 +19,9 @@ significantly speeds up implementation.
 
 1. Fork the repository and create a branch from `main`.
 2. Make your changes.
-3. Ensure ShellCheck passes locally:
+3. Ensure ShellCheck passes locally (the pre-commit hook does this automatically — install with `./scripts/install-hooks.sh`):
    ```bash
-   shellcheck terraclaim.sh drift.sh reconcile.sh examples/*.sh
+   shellcheck --severity=warning terraclaim.sh drift.sh reconcile.sh report.sh run.sh sync.sh lib/common.sh tests/*.bats
    ```
 4. Run the bats test suite (requires `bats-core` — `brew install bats-core`):
    ```bash

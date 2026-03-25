@@ -234,6 +234,9 @@ against AWS Resource Explorer:
 
 # Full reconciliation
 ./reconcile.sh --output ./tf-output --index-region us-east-1
+
+# With a named AWS profile
+./reconcile.sh --output ./tf-output --index-region us-east-1 --profile prod-readonly
 ```
 
 Sample output:
@@ -248,6 +251,17 @@ Coverage:                              94%
 ```
 
 Resource Explorer must be enabled with an **aggregator index** in `--index-region`.
+
+### reconcile.sh options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--output` | Output directory from `terraclaim.sh` | `./tf-output` |
+| `--index-region` | Region containing the Resource Explorer aggregator index | `us-east-1` |
+| `--accounts` | Comma-separated account IDs to filter results | All in index |
+| `--profile` | AWS named profile (`AWS_PROFILE`) | — |
+| `--dry-run` | Show what would be checked; do not query Resource Explorer | `false` |
+| `--debug` | Verbose logging | `false` |
 
 ---
 
@@ -350,8 +364,15 @@ A minimum policy should include actions such as:
 ## Testing
 
 The `tests/` directory contains a [bats-core](https://bats-core.readthedocs.io/) test suite
-that exercises `terraclaim.sh` and `drift.sh` using a mock AWS CLI — no real AWS credentials
+(40+ tests) that exercises all scripts using a mock AWS CLI — no real AWS credentials
 or account needed.
+
+| File | What it tests |
+|------|--------------|
+| `tests/terraclaim.bats` | Main scanner: flags, service exporters, slug dedup, `--resume`, `--output-format`, `--since`, `--exclude-services` |
+| `tests/drift.bats` | Drift detection: NEW/REMOVED reporting, `--apply` mutations |
+| `tests/reconcile.bats` | Coverage calculation: simple IDs, ARN-as-ID, composite IDs, missed resources |
+| `tests/common.bats` | Shared library: `slugify`, `tag_match`, `log`/`debug`/`die` |
 
 **Install bats-core:**
 
@@ -367,15 +388,22 @@ sudo bats-core/install.sh /usr/local
 **Run tests:**
 
 ```bash
+# Individual suites
 bats tests/terraclaim.bats
 bats tests/drift.bats
+bats tests/reconcile.bats
+bats tests/common.bats
 
-# Run both
+# Run all at once
 bats tests/
 ```
 
 The mock AWS CLI (`tests/helpers/mock_aws.bash`) intercepts every `aws` subcommand and
 returns fixture data set per-test via `mock_response`. Real `jq` is required.
+
+Shared helper functions (`log`, `debug`, `slugify`, AWS retry wrapper, tag filtering,
+cross-account role assumption) live in `lib/common.sh` and are sourced by both
+`terraclaim.sh` and `drift.sh`.
 
 ---
 

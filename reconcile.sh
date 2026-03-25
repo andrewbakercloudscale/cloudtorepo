@@ -15,6 +15,7 @@
 #   --output       "./tf-output"   Output directory from terraclaim.sh
 #   --index-region "us-east-1"    Region containing the Resource Explorer aggregator index
 #   --accounts     "id1,id2"      Comma-separated account IDs (default: all in index)
+#   --profile      "name"         AWS named profile (sets AWS_PROFILE)
 #   --dry-run                     Show what would be checked; do not query Resource Explorer
 #   --debug                       Verbose logging
 #   --help                        Show this help
@@ -27,6 +28,7 @@ set -euo pipefail
 OUTPUT_DIR="./tf-output"
 INDEX_REGION="us-east-1"
 ACCOUNTS=""
+PROFILE=""
 DRY_RUN=false
 DEBUG=false
 
@@ -51,12 +53,15 @@ while [[ $# -gt 0 ]]; do
     --output)       OUTPUT_DIR="$2";    shift 2 ;;
     --index-region) INDEX_REGION="$2";  shift 2 ;;
     --accounts)     ACCOUNTS="$2";      shift 2 ;;
+    --profile)      PROFILE="$2";       shift 2 ;;
     --dry-run)      DRY_RUN=true;       shift ;;
     --debug)        DEBUG=true;         shift ;;
     --help|-h)      usage ;;
     *) die "Unknown option: $1 — run with --help for usage." ;;
   esac
 done
+
+[[ -n "${PROFILE}" ]] && export AWS_PROFILE="${PROFILE}"
 
 # ---------------------------------------------------------------------------
 # Dependency checks
@@ -77,9 +82,17 @@ trap 'rm -f "${_covered_ids}" "${_missed_data:-}" 2>/dev/null' EXIT INT TERM
 while IFS= read -r line; do
   # Extract the id = "..." value from each import block
   if [[ "${line}" =~ ^[[:space:]]*id[[:space:]]*=[[:space:]]*\"(.+)\"[[:space:]]*$ ]]; then
-    echo "${BASH_REMATCH[1]}" >> "${_covered_ids}"
+    local_id="${BASH_REMATCH[1]}"
+    # Store the full import ID
+    echo "${local_id}" >> "${_covered_ids}"
+    # Also store each token from composite IDs (split on / : |) so that
+    # Resource Explorer ARN segments can match against them.  For example,
+    # id="cluster:nodegroup" adds both "cluster" and "nodegroup".
+    echo "${local_id}" | tr '/:|' '\n' | while IFS= read -r token; do
+      [[ -n "${token}" ]] && echo "${token}" >> "${_covered_ids}"
+    done
   fi
-done < <(grep -r 'id = "' "${OUTPUT_DIR}" --include='imports.tf' 2>/dev/null || true)
+done < <(grep -rh 'id = "' "${OUTPUT_DIR}" --include='imports.tf' 2>/dev/null || true)
 
 COVERED_COUNT=$(sort -u "${_covered_ids}" | wc -l | tr -d ' ') || true
 log "Found ${COVERED_COUNT} covered import IDs."
@@ -156,13 +169,41 @@ for resource_json in "${ALL_RESOURCES[@]}"; do
   res_type=$(echo "${resource_json}" | jq -r '.ResourceType' 2>/dev/null || true)
   res_region=$(echo "${resource_json}" | jq -r '.Region'     2>/dev/null || true)
 
-  # Extract the resource ID from the ARN (last path segment or resource portion)
-  resource_id="${arn##*:}"
-  resource_id="${resource_id##*/}"
+  # Build candidate IDs from the ARN to match against covered import IDs.
+  # We try multiple extractions because terraclaim uses various ID formats:
+  #   - full ARN             (ELB, SFN, ACM, ...)
+  #   - last slash segment   (S3 bucket, EC2 instance, ...)
+  #   - last colon segment   (some services use colon-delimited IDs)
+  #   - last colon+slash     (combined, e.g. EKS nodegroup ARN)
+  #   - each slash-segment of the resource path (handles composite IDs like
+  #     EKS nodegroup: cluster/my-cluster/my-ng/uuid → tries "my-cluster", "my-ng")
+  local_id_slash="${arn##*/}"
+  local_id_colon="${arn##*:}"
+  local_id_both="${arn##*:}"; local_id_both="${local_id_both##*/}"
 
-  # Check if this ARN or resource ID is in covered set
-  if grep -qxF "${arn}" "${_covered_ids}" 2>/dev/null || \
-     grep -qxF "${resource_id}" "${_covered_ids}" 2>/dev/null; then
+  # Check if any candidate matches an entry in the covered set
+  _resource_matched=false
+  if grep -qxF "${arn}"            "${_covered_ids}" 2>/dev/null || \
+     grep -qxF "${local_id_slash}" "${_covered_ids}" 2>/dev/null || \
+     grep -qxF "${local_id_colon}" "${_covered_ids}" 2>/dev/null || \
+     grep -qxF "${local_id_both}"  "${_covered_ids}" 2>/dev/null; then
+    _resource_matched=true
+  fi
+
+  # Also try each slash-segment of the resource path (part after the last colon).
+  # This catches composite IDs like EKS nodegroups where terraclaim stores
+  # "cluster-name:nodegroup-name" and the ARN encodes both as path components.
+  if ! "${_resource_matched}"; then
+    while IFS= read -r _seg; do
+      [[ -z "${_seg}" ]] && continue
+      if grep -qxF "${_seg}" "${_covered_ids}" 2>/dev/null; then
+        _resource_matched=true
+        break
+      fi
+    done < <(echo "${local_id_colon}" | tr '/' '\n')
+  fi
+
+  if "${_resource_matched}"; then
     MATCHED=$((MATCHED + 1))
   else
     MISSED=$((MISSED + 1))

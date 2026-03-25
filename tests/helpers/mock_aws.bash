@@ -36,7 +36,8 @@ while [[ $# -gt 0 ]]; do
     cognito-idp|cognito-identity|kinesis|firehose|ecr|stepfunctions|configservice|\
     efs|opensearch|guardduty|backup|redshift|redshift-serverless|glue|sesv2|\
     codepipeline|codebuild|docdb|fsx|transfer|elasticbeanstalk|apprunner|\
-    memorydb|athena|lakeformation|servicecatalog|lightsail|resourcegroupstaggingapi)
+    memorydb|athena|lakeformation|servicecatalog|lightsail|resourcegroupstaggingapi|\
+    resource-explorer-2)
       _svc="$1"; shift
       _cmd="$1"; shift 2>/dev/null || true
       _key="${_svc} ${_cmd}"

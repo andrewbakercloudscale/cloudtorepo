@@ -5,8 +5,10 @@
 # how many are already covered by an import block in the output directory.
 # Reports coverage percentage and lists potentially missed resources.
 #
+# If Resource Explorer is not enabled, reconcile.sh falls back to a local-only
+# mode that summarises the output directory itself (no coverage % available).
+#
 # Requirements: aws-cli >= 2, jq >= 1.6
-# Resource Explorer must be enabled and have an aggregator index configured.
 #
 # Usage:
 #   ./reconcile.sh [OPTIONS]
@@ -16,6 +18,7 @@
 #   --index-region "us-east-1"    Region containing the Resource Explorer aggregator index
 #   --accounts     "id1,id2"      Comma-separated account IDs (default: all in index)
 #   --profile      "name"         AWS named profile (sets AWS_PROFILE)
+#   --local                       Skip Resource Explorer; report counts from output dir only
 #   --dry-run                     Show what would be checked; do not query Resource Explorer
 #   --debug                       Verbose logging
 #   --help                        Show this help
@@ -30,6 +33,7 @@ INDEX_REGION="us-east-1"
 ACCOUNTS=""
 PROFILE=""
 DRY_RUN=false
+LOCAL_ONLY=false
 DEBUG=false
 
 # ---------------------------------------------------------------------------
@@ -54,6 +58,7 @@ while [[ $# -gt 0 ]]; do
     --index-region) INDEX_REGION="$2";  shift 2 ;;
     --accounts)     ACCOUNTS="$2";      shift 2 ;;
     --profile)      PROFILE="$2";       shift 2 ;;
+    --local)        LOCAL_ONLY=true;    shift ;;
     --dry-run)      DRY_RUN=true;       shift ;;
     --debug)        DEBUG=true;         shift ;;
     --help|-h)      usage ;;
@@ -104,6 +109,34 @@ if "${DRY_RUN}"; then
 fi
 
 # ---------------------------------------------------------------------------
+# Local-only fallback — summarise output directory without Resource Explorer
+# ---------------------------------------------------------------------------
+_local_summary() {
+  echo ""
+  echo "Summary (local output directory — no Resource Explorer)"
+  echo "-------"
+  local total=0
+  printf "%-20s %-15s %s\n" "Account" "Region" "Service  (import blocks)"
+  printf "%-20s %-15s %s\n" "-------" "------" "-------"
+  while IFS= read -r imports_tf; do
+    local count; count=$(grep -c '^import {' "${imports_tf}" 2>/dev/null || true)
+    [[ "${count}" -eq 0 ]] && continue
+    local rel="${imports_tf#${OUTPUT_DIR}/}"
+    local account; account=$(echo "${rel}" | cut -d/ -f1)
+    local region;  region=$(echo  "${rel}" | cut -d/ -f2)
+    local service; service=$(echo "${rel}" | cut -d/ -f3)
+    printf "%-20s %-15s %s  (%d)\n" "${account}" "${region}" "${service}" "${count}"
+    total=$((total + count))
+  done < <(find "${OUTPUT_DIR}" -name 'imports.tf' | sort)
+  echo ""
+  printf "Total import blocks: %d\n" "${total}"
+  echo ""
+  echo "[WARN] Resource Explorer is not enabled or has no aggregator index in ${INDEX_REGION}."
+  echo "       Enable it to get true coverage % against live AWS resources."
+  echo "       Or install with: aws resource-explorer-2 create-index --type AGGREGATOR --region ${INDEX_REGION}"
+}
+
+# ---------------------------------------------------------------------------
 # Query Resource Explorer for all resources
 # ---------------------------------------------------------------------------
 log "Querying Resource Explorer (index region: ${INDEX_REGION})..."
@@ -114,8 +147,12 @@ INDEX_TYPE=$(aws resource-explorer-2 get-index \
   --query 'Type' \
   --output text 2>/dev/null || echo "NONE")
 
-if [[ "${INDEX_TYPE}" == "NONE" ]] || [[ "${INDEX_TYPE}" == "None" ]]; then
-  die "No Resource Explorer index found in ${INDEX_REGION}. Enable Resource Explorer and create an aggregator index first."
+if [[ "${INDEX_TYPE}" == "NONE" ]] || [[ "${INDEX_TYPE}" == "None" ]] || "${LOCAL_ONLY}"; then
+  if ! "${LOCAL_ONLY}"; then
+    log "[WARN] No Resource Explorer aggregator index found in ${INDEX_REGION} — falling back to local mode."
+  fi
+  _local_summary
+  exit 0
 fi
 
 log "Index type: ${INDEX_TYPE}"

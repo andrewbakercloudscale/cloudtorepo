@@ -37,7 +37,8 @@ while [[ $# -gt 0 ]]; do
     efs|opensearch|guardduty|backup|redshift|redshift-serverless|glue|sesv2|\
     codepipeline|codebuild|docdb|fsx|transfer|elasticbeanstalk|apprunner|\
     memorydb|athena|lakeformation|servicecatalog|lightsail|resourcegroupstaggingapi|\
-    resource-explorer-2|emr|sagemaker|organizations|xray|appconfig|bedrock-agent)
+    resource-explorer-2|emr|sagemaker|organizations|xray|appconfig|bedrock-agent|\
+    connect|ram|service-quotas)
       _svc="$1"; shift
       _cmd="$1"; shift 2>/dev/null || true
       _key="${_svc} ${_cmd}"

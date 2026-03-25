@@ -21,7 +21,7 @@ significantly speeds up implementation.
 2. Make your changes.
 3. Ensure ShellCheck passes locally (the pre-commit hook does this automatically — install with `./scripts/install-hooks.sh`):
    ```bash
-   shellcheck --severity=warning terraclaim.sh drift.sh reconcile.sh report.sh run.sh sync.sh lib/common.sh tests/*.bats
+   shellcheck --severity=warning terraclaim.sh drift.sh reconcile.sh report.sh run.sh import.sh sync.sh lib/common.sh tests/*.bats
    ```
 4. Run the bats test suite (requires `bats-core` — `brew install bats-core`):
    ```bash
@@ -49,9 +49,12 @@ Each service is implemented as a single `export_<service>()` function in
    `scan_service` and add to the `SERVICES` default in `drift.sh`.
 7. **Add bats tests** in `tests/terraclaim.bats` — at minimum one test that
    mocks the AWS response and asserts the expected resource type appears in
-   `imports.tf`.
+   `imports.tf`. Add a matching scan detection test in `tests/drift.bats`.
 8. **Document** the service in the README supported-services table and the
    services grid in `index.html`, then run `./sync.sh` to deploy the site.
+9. **Verify import.sh compatibility** — the Terraform resource address format
+   used in `imports` must be a valid `terraform import` target. Check that the
+   import ID format matches the Terraform provider docs for the resource type.
 
 ### Services that require manual pagination
 

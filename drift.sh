@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# drift.sh — Detect drift between live AWS resources and a terraclaim output directory.
+# drift.sh — Detect drift between live AWS resources and a cloudtorepo output directory.
 #
-# Re-scans AWS using the same discovery logic as terraclaim.sh and compares the
+# Re-scans AWS using the same discovery logic as cloudtorepo.sh and compares the
 # results against the import blocks already written in your tf-output directory.
 # Reports NEW resources (exist in AWS, missing from imports.tf) and REMOVED
 # resources (in imports.tf but no longer present in AWS).
@@ -16,7 +16,7 @@
 #   ./drift.sh [OPTIONS]
 #
 # Options:
-#   --output    "./tf-output"           Output directory from terraclaim.sh
+#   --output    "./tf-output"           Output directory from cloudtorepo.sh
 #   --accounts  "id1,id2"              Comma-separated account IDs (default: current)
 #   --regions   "r1,r2"                Comma-separated regions (default: us-east-1)
 #   --services  "svc1,svc2"            Comma-separated services (default: all)
@@ -41,7 +41,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 OUTPUT_DIR="./tf-output"
 ACCOUNTS=""
 REGIONS="us-east-1"
-SERVICES="${_TERRACLAIM_DEFAULT_SERVICES}"
+SERVICES="${_CLOUDTOREPO_DEFAULT_SERVICES}"
 EXCLUDE_SERVICES=""
 TAGS=""
 ROLE_NAME=""
@@ -70,7 +70,7 @@ while [[ $# -gt 0 ]]; do
     --regions)  REGIONS="$2";     shift 2 ;;
     --services)
       if [[ "$2" == "list" ]]; then
-        echo "${_TERRACLAIM_DEFAULT_SERVICES}" | tr ',' '\n' | sort
+        echo "${_CLOUDTOREPO_DEFAULT_SERVICES}" | tr ',' '\n' | sort
         exit 0
       fi
       SERVICES="$2"; shift 2 ;;
@@ -104,7 +104,7 @@ for cmd in aws jq; do
 done
 
 if ! "${DRY_RUN}"; then
-  [[ -d "${OUTPUT_DIR}" ]] || die "Output directory not found: ${OUTPUT_DIR}. Run terraclaim.sh first (or use --dry-run to scan without an existing output directory)."
+  [[ -d "${OUTPUT_DIR}" ]] || die "Output directory not found: ${OUTPUT_DIR}. Run cloudtorepo.sh first (or use --dry-run to scan without an existing output directory)."
 fi
 
 IFS=',' read -ra ACCOUNT_LIST <<< "${ACCOUNTS}"
@@ -282,7 +282,7 @@ flush_report() {
 
 # ---------------------------------------------------------------------------
 # Per-service live scanners
-# Each populates LIVE_PAIRS array: alternating addr id (same format as terraclaim.sh)
+# Each populates LIVE_PAIRS array: alternating addr id (same format as cloudtorepo.sh)
 # ---------------------------------------------------------------------------
 
 scan_ec2() {
@@ -1471,7 +1471,7 @@ TOTAL_REMOVED=0
 TOTAL_UNCHANGED=0
 
 report ""
-report "Terraclaim Drift Report"
+report "CloudtoRepo Drift Report"
 report "Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 report "Output dir: ${OUTPUT_DIR}"
 if "${DRY_RUN}"; then

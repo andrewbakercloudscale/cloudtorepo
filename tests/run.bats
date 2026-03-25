@@ -53,7 +53,7 @@ for arg in "$@"; do
   fi
 done
 echo "No changes. Your infrastructure matches the configuration."
-echo "TERRACLAIM_RESULT=NOCHANGE"
+echo "CLOUDTOREPO_RESULT=NOCHANGE"
 exit 0
 EOF
   chmod +x "${_TC_MOCK_DIR}/terraform"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reconcile.sh — Compare a terraclaim output directory against AWS Resource Explorer.
+# reconcile.sh — Compare a cloudtorepo output directory against AWS Resource Explorer.
 #
 # Queries Resource Explorer for all resources in the account/region and checks
 # how many are already covered by an import block in the output directory.
@@ -14,7 +14,7 @@
 #   ./reconcile.sh [OPTIONS]
 #
 # Options:
-#   --output       "./tf-output"   Output directory from terraclaim.sh
+#   --output       "./tf-output"   Output directory from cloudtorepo.sh
 #   --index-region "us-east-1"    Region containing the Resource Explorer aggregator index
 #   --accounts     "id1,id2"      Comma-separated account IDs (default: all in index)
 #   --profile      "name"         AWS named profile (sets AWS_PROFILE)
@@ -207,7 +207,7 @@ for resource_json in "${ALL_RESOURCES[@]}"; do
   res_region=$(echo "${resource_json}" | jq -r '.Region'     2>/dev/null || true)
 
   # Build candidate IDs from the ARN to match against covered import IDs.
-  # We try multiple extractions because terraclaim uses various ID formats:
+  # We try multiple extractions because cloudtorepo uses various ID formats:
   #   - full ARN             (ELB, SFN, ACM, ...)
   #   - last slash segment   (S3 bucket, EC2 instance, ...)
   #   - last colon segment   (some services use colon-delimited IDs)
@@ -228,7 +228,7 @@ for resource_json in "${ALL_RESOURCES[@]}"; do
   fi
 
   # Also try each slash-segment of the resource path (part after the last colon).
-  # This catches composite IDs like EKS nodegroups where terraclaim stores
+  # This catches composite IDs like EKS nodegroups where cloudtorepo stores
   # "cluster-name:nodegroup-name" and the ARN encodes both as path components.
   if ! "${_resource_matched}"; then
     while IFS= read -r _seg; do

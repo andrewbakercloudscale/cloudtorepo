@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sync.sh — Deploy index.html to S3 and invalidate CloudFront.
 #
-# Uploads the terraclaim.org homepage to the S3 bucket and creates a
+# Uploads the cloudtorepo.com homepage to the S3 bucket and creates a
 # CloudFront invalidation so changes are live within ~30 seconds.
 #
 # Requirements: aws-cli >= 2, personal AWS CLI profile configured
@@ -11,8 +11,8 @@
 
 set -euo pipefail
 
-BUCKET="terraclaim"
-DISTRIBUTION_ID="E93UZDMC0QFS1"
+BUCKET="cloudtorepo"
+DISTRIBUTION_ID="ETOGUVSRE5GDD"
 PROFILE="personal"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INDEX="${SCRIPT_DIR}/index.html"
@@ -31,4 +31,4 @@ INVALIDATION_ID=$(aws cloudfront create-invalidation \
   --output text)
 
 echo "[INFO]  Invalidation ${INVALIDATION_ID} created."
-echo "[INFO]  terraclaim.org will be updated within ~30 seconds."
+echo "[INFO]  cloudtorepo.com will be updated within ~30 seconds."

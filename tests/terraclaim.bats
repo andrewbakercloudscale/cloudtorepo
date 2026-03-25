@@ -1,11 +1,11 @@
 #!/usr/bin/env bats
-# Tests for terraclaim.sh
-# Run with: bats tests/terraclaim.bats
+# Tests for cloudtorepo.sh
+# Run with: bats tests/cloudtorepo.bats
 # Requires bats-core >= 1.5: https://bats-core.readthedocs.io/
 
 bats_require_minimum_version 1.5.0
 
-TERRACLAIM="${BATS_TEST_DIRNAME}/../terraclaim.sh"
+CLOUDTOREPO="${BATS_TEST_DIRNAME}/../cloudtorepo.sh"
 
 load 'helpers/mock_aws'
 
@@ -24,30 +24,30 @@ teardown() {
 # ---------------------------------------------------------------------------
 
 @test "--version prints version and exits 0" {
-  run bash "${TERRACLAIM}" --version
+  run bash "${CLOUDTOREPO}" --version
   [ "$status" -eq 0 ]
-  [[ "$output" =~ ^terraclaim\ [0-9]+\.[0-9]+\.[0-9]+$ ]]
+  [[ "$output" =~ ^cloudtorepo\ [0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
 @test "--help prints usage and exits 0" {
-  run bash "${TERRACLAIM}" --help
+  run bash "${CLOUDTOREPO}" --help
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Usage:" ]]
 }
 
 @test "--parallel rejects non-integer" {
-  run bash "${TERRACLAIM}" --parallel abc --dry-run
+  run bash "${CLOUDTOREPO}" --parallel abc --dry-run
   [ "$status" -ne 0 ]
   [[ "$output" =~ "--parallel must be a positive integer" ]]
 }
 
 @test "--parallel rejects zero" {
-  run bash "${TERRACLAIM}" --parallel 0 --dry-run
+  run bash "${CLOUDTOREPO}" --parallel 0 --dry-run
   [ "$status" -ne 0 ]
 }
 
 @test "unknown flag exits with error" {
-  run bash "${TERRACLAIM}" --no-such-flag --dry-run
+  run bash "${CLOUDTOREPO}" --no-such-flag --dry-run
   [ "$status" -ne 0 ]
 }
 
@@ -58,7 +58,7 @@ teardown() {
 @test "--profile exports AWS_PROFILE" {
   # Use a tiny script that just checks the env var and exits
   run env -i PATH="${_TC_MOCK_DIR}:${PATH}" HOME="${HOME}" \
-    bash "${TERRACLAIM}" --profile myprofile --dry-run \
+    bash "${CLOUDTOREPO}" --profile myprofile --dry-run \
     --accounts 123456789012 --regions us-east-1 --services ec2
   # If AWS_PROFILE is exported, the mock aws would receive --profile myprofile.
   # We verify the script completed (dry-run, no real AWS calls needed).
@@ -72,7 +72,7 @@ teardown() {
 @test "--dry-run does not create output files" {
   mock_response "ec2 describe-instances" \
     'InstanceId  my-server'
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --dry-run \
     --accounts 123456789012 \
     --regions us-east-1 \
@@ -90,7 +90,7 @@ teardown() {
 @test "export_ec2 writes imports.tf with correct import block" {
   mock_response "ec2 describe-instances" \
     "i-0abc123def456\tmy-web-server"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services ec2 \
@@ -105,7 +105,7 @@ teardown() {
 @test "export_ec2 writes backend.tf with aws provider block" {
   mock_response "ec2 describe-instances" \
     "i-0abc123def456\tmy-server"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services ec2 \
@@ -129,7 +129,7 @@ teardown() {
     ""
   mock_response "ec2 describe-nat-gateways" \
     ""
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services vpc \
@@ -148,7 +148,7 @@ teardown() {
     "MyInstanceProfile"
   mock_response "iam list-open-id-connect-providers" \
     "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/EXAMPLE"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services iam \
@@ -169,7 +169,7 @@ teardown() {
     ""
   mock_response "eks list-fargate-profiles" \
     "my-fp"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services eks \
@@ -189,7 +189,7 @@ teardown() {
     '{"UserPoolClients":[]}'
   mock_response "cognito-identity list-identity-pools" \
     '{"IdentityPools":[]}'
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services cognito \
@@ -205,7 +205,7 @@ teardown() {
   # Two instances with the same Name tag produce colliding slugs
   mock_response "ec2 describe-instances" \
     "$(printf 'i-0aaa\tdup-name\ni-0bbb\tdup-name')"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services ec2 \
@@ -221,14 +221,14 @@ teardown() {
 }
 
 @test "--output-format rejects invalid value" {
-  run bash "${TERRACLAIM}" --output-format xml --dry-run \
+  run bash "${CLOUDTOREPO}" --output-format xml --dry-run \
     --accounts 123456789012 --regions us-east-1 --services ec2
   [ "$status" -ne 0 ]
   [[ "$output" =~ "--output-format must be" ]]
 }
 
 @test "--since rejects invalid date format" {
-  run bash "${TERRACLAIM}" --since 01-01-2025 --dry-run \
+  run bash "${CLOUDTOREPO}" --since 01-01-2025 --dry-run \
     --accounts 123456789012 --regions us-east-1 --services ec2
   [ "$status" -ne 0 ]
   [[ "$output" =~ "--since must be in YYYY-MM-DD" ]]
@@ -238,7 +238,7 @@ teardown() {
   # Even though mock returns data, the service should be skipped
   mock_response "ec2 describe-instances" \
     "i-0abc123\tmy-server"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services ec2 \
@@ -251,7 +251,7 @@ teardown() {
 @test "export_s3 writes import block for bucket in matching region" {
   mock_response "s3api list-buckets" "my-bucket"
   mock_response "s3api get-bucket-location" "us-east-1"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services s3 \
@@ -267,7 +267,7 @@ teardown() {
   mock_response "lambda list-functions" \
     "$(printf 'my-function\t2025-01-01T00:00:00Z')"
   mock_response "lambda get-function" "None"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services lambda \
@@ -282,7 +282,7 @@ teardown() {
 @test "export_kms writes import block" {
   mock_response "kms list-keys" \
     "$(printf 'abc-123-def\tarn:aws:kms:us-east-1:123456789012:key/abc-123-def')"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services kms \
@@ -297,7 +297,7 @@ teardown() {
 @test "summary.txt is written with correct total count" {
   mock_response "ec2 describe-instances" \
     "$(printf 'i-0aaa\tserver-a\ni-0bbb\tserver-b')"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services ec2 \
@@ -310,7 +310,7 @@ teardown() {
 @test "--output-format json writes summary.json" {
   mock_response "ec2 describe-instances" \
     "i-0abc123\tmy-server"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services ec2 \
@@ -325,7 +325,7 @@ teardown() {
   mock_response "ec2 describe-instances" \
     "i-0abc123def456\tmy-server"
   # First run (without --resume) writes files
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services ec2 \
@@ -335,13 +335,13 @@ teardown() {
 
   # Simulate a previous interrupted --resume run by seeding the checkpoint file.
   # (The checkpoint is cleared on success, so it only persists across interruptions.)
-  echo "123456789012/us-east-1/ec2" > "${_TC_OUTPUT_DIR}/.terraclaim-checkpoint"
+  echo "123456789012/us-east-1/ec2" > "${_TC_OUTPUT_DIR}/.cloudtorepo-checkpoint"
 
   # Second run with --resume should see the checkpoint and skip ec2.
   # Change mock to return different data — if resume works, imports.tf won't change.
   mock_response "ec2 describe-instances" \
     "i-DIFFERENT\tdifferent-server"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --resume \
     --accounts 123456789012 \
     --regions us-east-1 \
@@ -356,7 +356,7 @@ teardown() {
 @test "export_connect writes import block for instance" {
   mock_response "connect list-instances" "abc-instance-id"
   mock_response "connect list-contact-flows" ""
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services connect \
@@ -371,7 +371,7 @@ teardown() {
 @test "export_ram writes import block for resource share" {
   mock_response "ram list-resource-shares" \
     "$(printf 'arn:aws:ram:us-east-1:123456789012:resource-share/share-id\tmy-share')"
-  run bash "${TERRACLAIM}" \
+  run bash "${CLOUDTOREPO}" \
     --accounts 123456789012 \
     --regions us-east-1 \
     --services ram \
@@ -384,7 +384,7 @@ teardown() {
 }
 
 @test "--services list includes new services" {
-  run bash "${TERRACLAIM}" --services list
+  run bash "${CLOUDTOREPO}" --services list
   [ "$status" -eq 0 ]
   [[ "$output" =~ "connect" ]]
   [[ "$output" =~ "ram" ]]

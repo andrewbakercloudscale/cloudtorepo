@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lib/common.sh — Shared helpers sourced by terraclaim.sh and drift.sh.
+# lib/common.sh — Shared helpers sourced by cloudtorepo.sh and drift.sh.
 #
 # Prerequisites (set these globals before sourcing):
 #   DEBUG          — "true" | "false"
@@ -11,7 +11,7 @@
 # ---------------------------------------------------------------------------
 # Default service list — single source of truth for both scripts
 # ---------------------------------------------------------------------------
-_TERRACLAIM_DEFAULT_SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch,kinesis,cognito,cloudtrail,guardduty,backup,redshift,glue,ses,codepipeline,codebuild,documentdb,fsx,transfer,elasticbeanstalk,apprunner,memorydb,athena,lakeformation,servicecatalog,lightsail,emr,sagemaker,organizations,xray,appconfig,bedrock,connect,ram,servicequotas"
+_CLOUDTOREPO_DEFAULT_SERVICES="ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch,kinesis,cognito,cloudtrail,guardduty,backup,redshift,glue,ses,codepipeline,codebuild,documentdb,fsx,transfer,elasticbeanstalk,apprunner,memorydb,athena,lakeformation,servicecatalog,lightsail,emr,sagemaker,organizations,xray,appconfig,bedrock,connect,ram,servicequotas"
 
 # ---------------------------------------------------------------------------
 # Logging helpers
@@ -124,7 +124,7 @@ assume_role() {
   local creds
   creds=$(aws sts assume-role \
     --role-arn "${arn}" \
-    --role-session-name "terraclaim-$$" \
+    --role-session-name "cloudtorepo-$$" \
     --query 'Credentials' \
     --output json) || die "Failed to assume role ${arn}"
   export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN

@@ -1,6 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="7" fill="#1a1f2e"/>
-  <text font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="20" y="23">
-    <tspan x="2" fill="#7B42BC">t</tspan><tspan fill="#ffffff">c</tspan>
-  </text>
+  <defs>
+    <linearGradient id="hex-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5B9FE8"/>
+      <stop offset="50%" stop-color="#7c6af7"/>
+      <stop offset="100%" stop-color="#9B59B6"/>
+    </linearGradient>
+  </defs>
+  <!-- Hexagon background -->
+  <polygon points="16,1 29,8.5 29,23.5 16,31 3,23.5 3,8.5" fill="url(#hex-grad)"/>
+  <!-- Cloud body -->
+  <ellipse cx="16" cy="15" rx="6" ry="4" fill="white" opacity="0.95"/>
+  <ellipse cx="13" cy="16" rx="3.5" ry="3" fill="white" opacity="0.95"/>
+  <ellipse cx="19" cy="16" rx="3" ry="2.5" fill="white" opacity="0.95"/>
+  <!-- Up arrow -->
+  <line x1="16" y1="12" x2="16" y2="8" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+  <polyline points="13.5,10 16,7.5 18.5,10" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

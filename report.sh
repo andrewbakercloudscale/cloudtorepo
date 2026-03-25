@@ -116,6 +116,36 @@ cat <<EOF
 EOF
 
 # ---------------------------------------------------------------------------
+# Per-account totals (only shown when more than one account present)
+# ---------------------------------------------------------------------------
+if [[ ${#rows[@]} -gt 0 ]]; then
+  # Collect unique accounts
+  unique_accounts=()
+  while IFS=$'\t' read -r account _r _s _c; do
+    _found=false
+    for _a in "${unique_accounts[@]+"${unique_accounts[@]}"}"; do
+      [[ "${_a}" == "${account}" ]] && { _found=true; break; }
+    done
+    "${_found}" || unique_accounts+=("${account}")
+  done < <(printf '%s\n' "${rows[@]}" | sort -t$'\t' -k1,1)
+
+  if [[ ${#unique_accounts[@]} -gt 1 ]]; then
+    echo "## Account Totals"
+    echo ""
+    echo "| Account | Import blocks |"
+    echo "|---------|--------------|"
+    for _acct in "${unique_accounts[@]}"; do
+      _acct_total=0
+      while IFS=$'\t' read -r _a _r _s count; do
+        [[ "${_a}" == "${_acct}" ]] && _acct_total=$((_acct_total + count))
+      done < <(printf '%s\n' "${rows[@]}")
+      printf "| \`%s\` | %d |\n" "${_acct}" "${_acct_total}"
+    done
+    echo ""
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Per-region breakdown table
 # ---------------------------------------------------------------------------
 if [[ ${#rows[@]} -gt 0 ]]; then
@@ -144,6 +174,27 @@ if [[ ${#rows[@]} -gt 0 ]]; then
   done < <(printf '%s\n' "${rows[@]}" | sort -t$'\t' -k1,1 -k2,2 -k4,4rn)
 
   echo ""
+
+  # Cross-account service totals (only when more than one account)
+  if [[ ${#unique_accounts[@]} -gt 1 ]]; then
+    echo "## Cross-Account Service Totals"
+    echo ""
+    echo "| Service | Import blocks |"
+    echo "|---------|--------------|"
+    # Aggregate by service across all accounts/regions
+    declare -A _svc_totals 2>/dev/null || true
+    while IFS=$'\t' read -r _a _r service count; do
+      _svc_totals["${service}"]=$(( ${_svc_totals["${service}"]:-0} + count ))
+    done < <(printf '%s\n' "${rows[@]}")
+    # Sort by count descending
+    for svc in "${!_svc_totals[@]}"; do
+      printf '%d\t%s\n' "${_svc_totals[${svc}]}" "${svc}"
+    done | sort -rn | while IFS=$'\t' read -r count svc; do
+      printf "| \`%s\` | %d |\n" "${svc}" "${count}"
+    done
+    echo ""
+    unset _svc_totals
+  fi
 fi
 
 # ---------------------------------------------------------------------------

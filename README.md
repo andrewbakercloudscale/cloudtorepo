@@ -96,7 +96,7 @@ chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
 |------|-------------|---------|
 | `--accounts` | Comma-separated account IDs | Current account |
 | `--regions` | Comma-separated regions | `us-east-1` |
-| `--services` | Comma-separated services (see below) | All supported services |
+| `--services` | Comma-separated services, or `list` to print all supported services | All supported services |
 | `--profile` | AWS named profile (`AWS_PROFILE`) | — |
 | `--role` | IAM role name to assume in each account | — |
 | `--state-bucket` | S3 bucket for remote state `backend "s3"` | — (local state) |
@@ -105,6 +105,7 @@ chmod +x terraclaim.sh reconcile.sh drift.sh examples/*.sh
 | `--parallel` | Max concurrent service scans | `5` |
 | `--exclude-services` | Comma-separated services to skip | — |
 | `--tags` | Only import resources with these tags e.g. `"Env=prod,Team=sre"` | — |
+| `--since` | Only include resources created after this date (`YYYY-MM-DD`) | — |
 | `--resume` | Skip account/region/service combos already written | `false` |
 | `--dry-run` | Print resource counts; do not write files | `false` |
 | `--debug` | Verbose logging | `false` |
@@ -260,6 +261,7 @@ Resource Explorer must be enabled with an **aggregator index** in `--index-regio
 | `--index-region` | Region containing the Resource Explorer aggregator index | `us-east-1` |
 | `--accounts` | Comma-separated account IDs to filter results | All in index |
 | `--profile` | AWS named profile (`AWS_PROFILE`) | — |
+| `--local` | Skip Resource Explorer; show per-service import block counts from output dir | `false` |
 | `--dry-run` | Show what would be checked; do not query Resource Explorer | `false` |
 | `--debug` | Verbose logging | `false` |
 
@@ -317,10 +319,11 @@ Run with --apply to update imports.tf files automatically.
 | `--output` | Output directory from `terraclaim.sh` | `./tf-output` |
 | `--accounts` | Comma-separated account IDs | Current account |
 | `--regions` | Comma-separated regions | `us-east-1` |
-| `--services` | Comma-separated services | All supported services |
+| `--services` | Comma-separated services, or `list` to print all supported services | All supported services |
 | `--profile` | AWS named profile (`AWS_PROFILE`) | — |
 | `--role` | IAM role to assume in each account | — |
 | `--apply` | Update `imports.tf` in place | `false` |
+| `--dry-run` | Preview drift without writing files or requiring output dir | `false` |
 | `--report` | Write report to file in addition to stdout | — |
 | `--parallel` | Max concurrent service scans | `5` |
 | `--exclude-services` | Comma-separated services to skip | — |
@@ -458,15 +461,16 @@ Attach this managed policy (or an inline equivalent) to the IAM role or user:
 ## Testing
 
 The `tests/` directory contains a [bats-core](https://bats-core.readthedocs.io/) test suite
-(75 tests across 5 suites) that exercises all scripts using a mock AWS CLI — no real AWS
+(99 tests across 6 suites) that exercises all scripts using a mock AWS CLI — no real AWS
 credentials or account needed.
 
 | File | Tests | What it tests |
 |------|------:|--------------|
-| `tests/terraclaim.bats` | 23 | Main scanner: flags, service exporters, slug dedup, `--resume`, `--output-format`, `--since`, `--exclude-services` |
-| `tests/drift.bats` | 17 | Drift detection: NEW/REMOVED reporting, `--apply` mutations, `--dry-run`, `--services list`, scan functions |
-| `tests/reconcile.bats` | 7 | Coverage calculation: simple IDs, ARN-as-ID, composite IDs, missed resources |
+| `tests/terraclaim.bats` | 26 | Main scanner: flags, service exporters, slug dedup, `--resume`, `--output-format`, `--since`, `--exclude-services`, `--services list` |
+| `tests/drift.bats` | 26 | Drift detection: NEW/REMOVED reporting, `--apply` mutations, `--dry-run`, `--services list`, 13 scan functions |
+| `tests/reconcile.bats` | 8 | Coverage calculation: simple IDs, ARN-as-ID, composite IDs, missed resources, `--local` |
 | `tests/report.bats` | 13 | Markdown report: title, summary table, per-service counts, sort order, `--out`, drift section |
+| `tests/run.bats` | 11 | Terraform plan runner: flags, filters, `--dry-run`, `--init-only`, no-match exit |
 | `tests/common.bats` | 15 | Shared library: `slugify`, `tag_match`, `log`/`debug`/`die` |
 
 **Install bats-core:**
@@ -487,6 +491,8 @@ sudo bats-core/install.sh /usr/local
 bats tests/terraclaim.bats
 bats tests/drift.bats
 bats tests/reconcile.bats
+bats tests/report.bats
+bats tests/run.bats
 bats tests/common.bats
 
 # Run all at once

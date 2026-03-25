@@ -24,7 +24,7 @@
 #   --tags      "Env=prod,Team=sre" Only import resources with these tags (requires Resource Groups Tagging API)
 #   --account-parallel  N           Max concurrent account scans (default: 1, set > 1 for multi-account sweeps)
 #   --output-format "text|json"     Output format for summary file (default: text; json writes summary.json)
-#   --since "YYYY-MM-DD"            Only import resources created/modified on or after this date (best-effort; applies to ec2, ebs, eks, lambda, ecr, rds)
+#   --since "YYYY-MM-DD"            Only import resources created/modified on or after this date (best-effort; applies to ec2, ebs, eks, lambda, ecr, rds, secretsmanager)
 #   --resume                        Skip account/region/service combinations already written to the output dir
 #   --dry-run                       Print resource counts; do not write files
 #   --debug                         Verbose logging
@@ -934,15 +934,16 @@ export_secretsmanager() {
   local account="$1" region="$2" path="$3"
   local imports=() types=()
   log "  [secretsmanager] listing secrets..."
-  while IFS=$'\t' read -r secret_arn secret_name; do
+  while IFS=$'\t' read -r secret_arn secret_name created_date; do
     [[ -z "${secret_arn}" ]] && continue
+    [[ -n "${SINCE}" && "${created_date:0:10}" < "${SINCE}" ]] && continue
     tag_match "${secret_arn}" || continue
     local slug; slug=$(slugify "${secret_name}")
     imports+=("aws_secretsmanager_secret.${slug}" "${secret_arn}")
     types+=("aws_secretsmanager_secret.${slug}")
   done < <(aws secretsmanager list-secrets \
     --region "${region}" \
-    --query 'SecretList[].[ARN, Name]' \
+    --query 'SecretList[].[ARN, Name, CreatedDate]' \
     --output text 2>/dev/null || true)
 
   [[ ${#imports[@]} -eq 0 ]] && { debug "  [secretsmanager] no secrets found"; return; }

@@ -5,6 +5,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.7.0] — 2026-03-25
+
+### Added
+- `import.sh` — runs `terraform import` for every resource block in an output
+  directory. Reads `imports.tf` files, checks `terraform state list` to skip
+  already-managed resources, and calls `terraform import <address> <id>`.
+  Supports `--parallel`, `--services`, `--regions`, `--accounts`, `--init`,
+  `--dry-run`, and `--debug` flags.
+- `reconcile.sh --local` — bypass AWS Resource Explorer entirely; prints a
+  per-account / per-region / per-service import block count table directly
+  from the output directory. Useful when Resource Explorer is not enabled.
+  Auto-fallback: if no aggregator index is found, `--local` behaviour triggers
+  automatically with a hint to enable Resource Explorer.
+- `report.sh` cross-account summary — when the output directory contains more
+  than one account, two additional sections are now emitted: an **Account
+  Totals** table and a **Cross-Account Service Totals** table sorted by import
+  block count descending.
+- `--since` date filter broadened to cover **7 services**: EC2 instances
+  (`LaunchTime`), EBS volumes (`CreateTime`), EKS clusters (`createdAt`),
+  Lambda functions (`LastModified`), ECR repositories (`createdAt`), RDS
+  instances (`InstanceCreateTime`), and Secrets Manager secrets (`CreatedDate`).
+- `--services list` flag in both `terraclaim.sh` and `drift.sh` — prints all
+  supported service names (one per line, sorted) and exits 0. Useful for
+  scripting and tab-completion.
+
+### Added (services)
+- **v1.5.0 services** (6 new): `emr`, `sagemaker`, `organizations`, `xray`,
+  `appconfig`, `bedrock` — exporters in `terraclaim.sh`, scan functions in
+  `drift.sh`, registered in `lib/common.sh` default services list.
+- **v1.6.0 services** (3 new): `connect`, `ram`, `servicequotas` — same
+  pattern; total supported services now **65+**.
+
+### Tests
+- 44 new BATS tests (99 total across 6 suites, all passing):
+  - `tests/drift.bats` +19 — `--dry-run` flag, `--services list`, and 13 new
+    service scan detection tests (`scan_s3`, `scan_lambda`, `scan_rds`,
+    `scan_eks`, `scan_emr`, `scan_sagemaker`, `scan_organizations`, `scan_xray`,
+    `scan_appconfig`, `scan_bedrock`, `scan_connect`, `scan_ram`,
+    `scan_servicequotas`)
+  - `tests/reconcile.bats` +1 — `--local` flag: verifies per-service summary
+    without querying Resource Explorer
+  - `tests/report.bats` (13) — new suite covering `--title`, summary table,
+    per-service counts, sort order, `--out` file writing, drift section, no-drift
+    message, and next steps
+  - `tests/run.bats` (11) — new suite covering `terraform plan` runner: flags,
+    `--services`/`--regions`/`--accounts` filters, `--dry-run`, `--init-only`,
+    no-match exit
+  - `tests/terraclaim.bats` +3 — `export_connect`, `export_ram`,
+    `--services list` includes new services
+
+---
+
 ## [1.4.0] — 2026-03-25
 
 ### Added

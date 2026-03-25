@@ -267,3 +267,109 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "my-cluster" ]]
 }
+
+@test "scan_emr detects new cluster in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/emr"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/emr/imports.tf"
+  mock_response "emr list-clusters" "$(printf 'j-ABC123\tMyCluster')"
+  run bash "${DRIFT}" \
+    --accounts 123456789012 --regions us-east-1 --services emr \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "j-ABC123" ]]
+}
+
+@test "scan_sagemaker detects new endpoint in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/sagemaker"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/sagemaker/imports.tf"
+  mock_response "sagemaker list-domains" ""
+  mock_response "sagemaker list-endpoints" "my-endpoint"
+  run bash "${DRIFT}" \
+    --accounts 123456789012 --regions us-east-1 --services sagemaker \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "my-endpoint" ]]
+}
+
+@test "scan_organizations detects new account" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/organizations"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/organizations/imports.tf"
+  mock_response "organizations list-accounts" "$(printf '111111111111\tChildAccount')"
+  run bash "${DRIFT}" \
+    --accounts 123456789012 --regions us-east-1 --services organizations \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "111111111111" ]]
+}
+
+@test "scan_xray detects new group in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/xray"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/xray/imports.tf"
+  mock_response "xray get-groups" "$(printf 'MyGroup\tarn:aws:xray:us-east-1:123456789012:group/MyGroup')"
+  mock_response "xray get-sampling-rules" ""
+  run bash "${DRIFT}" \
+    --accounts 123456789012 --regions us-east-1 --services xray \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "MyGroup" ]]
+}
+
+@test "scan_appconfig detects new application in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/appconfig"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/appconfig/imports.tf"
+  mock_response "appconfig list-applications" "$(printf 'app-abc\tMyApp')"
+  mock_response "appconfig list-environments" ""
+  run bash "${DRIFT}" \
+    --accounts 123456789012 --regions us-east-1 --services appconfig \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "app-abc" ]]
+}
+
+@test "scan_bedrock detects new knowledge base in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/bedrock"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/bedrock/imports.tf"
+  mock_response "bedrock-agent list-knowledge-bases" "$(printf 'kb-12345\tMyKB')"
+  mock_response "bedrock-agent list-agents" ""
+  run bash "${DRIFT}" \
+    --accounts 123456789012 --regions us-east-1 --services bedrock \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "kb-12345" ]]
+}
+
+@test "scan_connect detects new instance in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/connect"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/connect/imports.tf"
+  mock_response "connect list-instances" "inst-abc123"
+  mock_response "connect list-contact-flows" ""
+  run bash "${DRIFT}" \
+    --accounts 123456789012 --regions us-east-1 --services connect \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "inst-abc123" ]]
+}
+
+@test "scan_ram detects new resource share in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/ram"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/ram/imports.tf"
+  mock_response "ram list-resource-shares" \
+    "$(printf 'arn:aws:ram:us-east-1:123456789012:resource-share/share-xyz\tMyShare')"
+  run bash "${DRIFT}" \
+    --accounts 123456789012 --regions us-east-1 --services ram \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "share-xyz" ]]
+}
+
+@test "scan_servicequotas detects new quota override in AWS" {
+  mkdir -p "${_TC_OUTPUT_DIR}/123456789012/us-east-1/servicequotas"
+  touch "${_TC_OUTPUT_DIR}/123456789012/us-east-1/servicequotas/imports.tf"
+  mock_response "service-quotas list-requested-services-by-requester" \
+    "$(printf 'arn:aws:servicequotas:us-east-1:123456789012:ec2/L-1216C47A\tec2\tL-1216C47A')"
+  run bash "${DRIFT}" \
+    --accounts 123456789012 --regions us-east-1 --services servicequotas \
+    --output "${_TC_OUTPUT_DIR}"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "NEW" ]] || [[ "$output" =~ "ec2/L-1216C47A" ]]
+}

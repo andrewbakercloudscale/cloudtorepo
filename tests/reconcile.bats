@@ -156,3 +156,28 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Potentially missed" ]]
 }
+
+# ---------------------------------------------------------------------------
+# --local flag (no Resource Explorer required)
+# ---------------------------------------------------------------------------
+
+@test "--local shows per-service summary without querying Resource Explorer" {
+  _make_output 'import {
+  to = aws_instance.web
+  id = "i-0abc123"
+}
+
+import {
+  to = aws_instance.app
+  id = "i-0def456"
+}'
+  run bash "${RECONCILE}" \
+    --output "${_TC_OUTPUT_DIR}" \
+    --local
+  [ "$status" -eq 0 ]
+  # Should show account/region/service breakdown without Resource Explorer output
+  [[ "$output" =~ "ec2" ]]
+  [[ "$output" =~ "2" ]]
+  # Should NOT attempt Resource Explorer queries
+  [[ ! "$output" =~ "Coverage:" ]]
+}

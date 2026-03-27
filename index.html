@@ -647,11 +647,6 @@
 </head>
 <body>
 
-<!-- MATRIX RAIN OVERLAY -->
-<div id="matrix-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:9998;opacity:1;transition:opacity 1.5s ease;pointer-events:none;">
-  <canvas id="matrix-canvas" style="display:block;width:100%;height:100%;"></canvas>
-</div>
-
 <!-- NAV -->
 <nav>
   <a class="nav-logo" href="#"><span>Cloud</span>toRepo</a>
@@ -665,7 +660,7 @@
 
 <!-- HERO -->
 <section class="hero">
-  <img src="cloudtorepo.png" alt="CloudtoRepo" class="hero-logo" style="width:320px;height:auto;object-fit:contain;margin-bottom:1.5rem;" />
+  <img src="CloudToRepo.jpeg" alt="CloudtoRepo" class="hero-logo" style="width:480px;height:auto;object-fit:contain;margin-bottom:1.5rem;" />
   <div class="badge">Open Source · MIT License</div>
   <h1>Reverse-engineer your AWS estate<br>into <span class="gradient">Terraform</span><br>with <span class="tc-terra">Cloud</span>toRepo</h1>
   <p class="hero-sub">
@@ -1482,66 +1477,6 @@ chmod +x cloudtorepo.sh reconcile.sh drift.sh run.sh report.sh import.sh</pre>
       });
     });
   });
-</script>
-
-<script>
-// Matrix rain — runs every page load
-(function() {
-  var overlay = document.getElementById('matrix-overlay');
-  var canvas  = document.getElementById('matrix-canvas');
-  if (!overlay || !canvas) return;
-
-  var ctx = canvas.getContext('2d');
-  var W = canvas.width  = window.innerWidth;
-  var H = canvas.height = window.innerHeight;
-  var SIZE = 18;
-  var cols = Math.floor(W / SIZE);
-  var CHARS = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789ABCDEF$@#%&';
-  var TRAIL = 24;
-  var drops = [];
-  var history = [];
-  for (var i = 0; i < cols; i++) {
-    drops[i] = Math.random() * -(H / SIZE) * 2;
-    history[i] = [];
-  }
-
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-    ctx.font = SIZE + 'px monospace';
-    for (var i = 0; i < cols; i++) {
-      if (drops[i] >= 0) {
-        history[i].unshift({ y: Math.floor(drops[i]), ch: CHARS[Math.floor(Math.random() * CHARS.length)] });
-        if (history[i].length > TRAIL) history[i].pop();
-      }
-      for (var j = 0; j < history[i].length; j++) {
-        var alpha = Math.pow(1 - j / TRAIL, 1.5);
-        if (j === 0) {
-          ctx.shadowBlur = 18; ctx.shadowColor = '#00ff41';
-          ctx.fillStyle = 'rgba(220,255,220,' + alpha + ')';
-        } else {
-          ctx.shadowBlur = 6; ctx.shadowColor = '#00ff41';
-          ctx.fillStyle = 'rgba(0,220,50,' + (alpha * 0.85) + ')';
-        }
-        ctx.fillText(history[i][j].ch, i * SIZE, history[i][j].y * SIZE);
-      }
-      drops[i] += 1.2;
-      if (drops[i] * SIZE > H && Math.random() > 0.97) { drops[i] = 0; history[i] = []; }
-    }
-  }
-
-  var raf;
-  function loop() { draw(); raf = requestAnimationFrame(loop); }
-  loop();
-
-  // Fade out after 2.5 s, remove after fade
-  setTimeout(function() {
-    overlay.style.opacity = '0';
-    setTimeout(function() {
-      cancelAnimationFrame(raf);
-      overlay.remove();
-    }, 1000);
-  }, 2500);
-})();
 </script>
 </body>
 </html>

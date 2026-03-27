@@ -69,7 +69,7 @@ fi
 # ---------------------------------------------------------------------------
 echo ""
 if [[ ${errors} -gt 0 ]]; then
-  echo -e "${RED}pre-commit: ${errors} check(s) failed — commit blocked.${NC}"
+  echo -e "${RED}pre-commit: ${errors} check(s) failed — commit blocked.${NC}" >&2
   exit 1
 fi
 echo -e "${GREEN}pre-commit: all checks passed.${NC}"

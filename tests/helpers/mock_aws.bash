@@ -2,6 +2,8 @@
 # Shared helpers for CloudtoRepo bats tests.
 # Load with: load 'helpers/mock_aws'
 
+set -o pipefail
+
 # ---------------------------------------------------------------------------
 # setup_mock_aws — installs a fake aws binary into a temp dir on PATH
 # teardown_mock_aws — cleans up the temp dir

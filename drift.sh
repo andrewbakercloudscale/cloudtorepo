@@ -1674,3 +1674,7 @@ fi
 report ""
 
 flush_report
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  : # script is executed directly
+fi

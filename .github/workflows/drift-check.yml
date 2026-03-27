@@ -17,21 +17,32 @@ on:
 jobs:
   drift:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     permissions:
       id-token: write    # OIDC token for AWS role assumption
       contents: read
       issues: write      # open an issue when drift is detected
 
     steps:
+      - name: Check AWS_ROLE_ARN is configured
+        run: |
+          if [[ -z "${{ vars.AWS_ROLE_ARN }}" ]]; then
+            echo "::warning::AWS_ROLE_ARN is not set. Add it under Settings → Secrets and variables → Variables, then re-run."
+            exit 0
+          fi
+
       - uses: actions/checkout@v4
 
       - name: Configure AWS credentials
+        if: vars.AWS_ROLE_ARN != ''
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ github.event.inputs.regions || 'us-east-1' }}
 
       - name: Install dependencies
+        if: vars.AWS_ROLE_ARN != ''
         run: |
           sudo apt-get update -qq && sudo apt-get install -y jq unzip
           TF_VERSION="1.7.5"
@@ -42,6 +53,7 @@ jobs:
           rm terraform.zip
 
       - name: Run drift detection
+        if: vars.AWS_ROLE_ARN != ''
         id: drift
         run: |
           EXTRA_ARGS=""
@@ -65,7 +77,7 @@ jobs:
           echo "removed=${REMOVED:-0}" >> "$GITHUB_OUTPUT"
 
       - name: Open issue on drift detected
-        if: steps.drift.outputs.new != '0' || steps.drift.outputs.removed != '0'
+        if: vars.AWS_ROLE_ARN != '' && (steps.drift.outputs.new != '0' || steps.drift.outputs.removed != '0')
         uses: actions/github-script@v7
         with:
           script: |
@@ -103,7 +115,7 @@ jobs:
             }
 
       - name: Upload drift report
-        if: always()
+        if: vars.AWS_ROLE_ARN != '' && always()
         uses: actions/upload-artifact@v4
         with:
           name: drift-report-${{ github.run_id }}

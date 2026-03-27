@@ -36,6 +36,7 @@ usage() {
   exit 0
 }
 
+function main() {
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -269,3 +270,9 @@ cat <<'EOF'
 5. Commit the baseline on a `baseline-import` branch
 6. Run `drift.sh` regularly (or in CI) to catch out-of-band changes
 EOF
+} # end main
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+  exit 0
+fi

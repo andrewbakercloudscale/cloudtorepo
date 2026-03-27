@@ -56,7 +56,7 @@ SINCE=""
 RESUME=false
 DRY_RUN=false
 DEBUG=false
-VERSION="1.3.0"
+VERSION="1.8.0"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -2673,4 +2673,8 @@ if ! "${DRY_RUN}"; then
   log "  4. Run reconcile.sh to check coverage"
 else
   log "Dry run complete — no files written."
+fi
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  : # script is executed directly
 fi

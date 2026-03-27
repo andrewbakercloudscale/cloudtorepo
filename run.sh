@@ -47,6 +47,7 @@ usage() {
   exit 0
 }
 
+function main() {
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -278,4 +279,10 @@ if ! "${INIT_ONLY}"; then
   log "  1. Review generated.tf in each service directory"
   log "  2. Remove any computed / read-only attributes that cause a diff"
   log "  3. Commit as your Terraform baseline on a 'baseline-import' branch"
+fi
+} # end main
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+  exit 0
 fi

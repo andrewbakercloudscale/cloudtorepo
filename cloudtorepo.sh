@@ -56,7 +56,7 @@ SINCE=""
 RESUME=false
 DRY_RUN=false
 DEBUG=false
-VERSION="1.8.0"
+VERSION="1.8.1"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1465,8 +1465,10 @@ export_cognito() {
 
   # User pools — cognito-idp list-user-pools requires --max-results (max 60 per page)
   # so we must paginate manually rather than relying on AWS CLI auto-pagination.
-  local _up_token="" _up_out
+  local _up_token="" _up_out _up_iter=0
   while true; do
+    (( _up_iter++ )) || true
+    [[ $_up_iter -gt 100 ]] && { err "[cognito] user pool pagination safety limit reached"; break; }
     local _up_args=("cognito-idp" "list-user-pools" "--max-results" "60" "--region" "${region}" "--output" "json")
     [[ -n "${_up_token}" ]] && _up_args+=("--next-token" "${_up_token}")
     _up_out=$(aws "${_up_args[@]}" 2>/dev/null) || break
@@ -1488,13 +1490,15 @@ export_cognito() {
         --query 'UserPoolClients[].[ClientId, ClientName]' \
         --output text 2>/dev/null || true)
     done < <(echo "${_up_out}" | jq -r '.UserPools[]? | "\(.Id)\t\(.Name)"' 2>/dev/null || true)
-    _up_token=$(echo "${_up_out}" | jq -r '.NextToken // empty' 2>/dev/null) || true
+    _up_token=$(echo "${_up_out}" | jq -r '.NextToken // empty' 2>/dev/null) || break
     [[ -z "${_up_token}" ]] && break
   done
 
   # Identity pools — same pagination constraint as user pools
-  local _ip_token="" _ip_out
+  local _ip_token="" _ip_out _ip_iter=0
   while true; do
+    (( _ip_iter++ )) || true
+    [[ $_ip_iter -gt 100 ]] && { err "[cognito] identity pool pagination safety limit reached"; break; }
     local _ip_args=("cognito-identity" "list-identity-pools" "--max-results" "60" "--region" "${region}" "--output" "json")
     [[ -n "${_ip_token}" ]] && _ip_args+=("--next-token" "${_ip_token}")
     _ip_out=$(aws "${_ip_args[@]}" 2>/dev/null) || break
@@ -1504,7 +1508,7 @@ export_cognito() {
       imports+=("aws_cognito_identity_pool.${slug}" "${identity_pool_id}")
       types+=("aws_cognito_identity_pool.${slug}")
     done < <(echo "${_ip_out}" | jq -r '.IdentityPools[]? | "\(.IdentityPoolId)\t\(.IdentityPoolName)"' 2>/dev/null || true)
-    _ip_token=$(echo "${_ip_out}" | jq -r '.NextToken // empty' 2>/dev/null) || true
+    _ip_token=$(echo "${_ip_out}" | jq -r '.NextToken // empty' 2>/dev/null) || break
     [[ -z "${_ip_token}" ]] && break
   done
 

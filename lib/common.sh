@@ -34,7 +34,7 @@ slugify() {
 aws() {
   local attempt=1 delay=1 max=5 out ec
   while true; do
-    out=$(command aws "$@" 2>&1); ec=$?
+    out=$(command aws --cli-read-timeout 30 --cli-connect-timeout 10 "$@" 2>&1); ec=$?
     if [[ $ec -eq 0 ]]; then
       # Command substitution strips trailing newlines; add one back so that
       # callers using `while read` correctly process the final output line.

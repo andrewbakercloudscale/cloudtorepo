@@ -21,635 +21,34 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:image" content="https://cloudtorepo.com/cloudtorepo.png" />
   <meta name="twitter:image:alt" content="CloudtoRepo: Reverse-engineer your AWS estate into Terraform" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg: #0a0d14;
-      --surface: #111622;
-      --surface2: #161d2e;
-      --border: #1e2a42;
-      --accent: #7c6af7;
-      --accent2: #5eead4;
-      --text: #e2e8f0;
-      --muted: #c8d3e0;
-      --code-bg: #0d1117;
-      --radius: 12px;
-    }
-
-    html { scroll-behavior: smooth; scroll-padding-top: 68px; }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
-      font-size: 16px;
-      line-height: 1.6;
-      overflow-x: hidden;
-    }
-
-    /* NAV */
-    nav {
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      z-index: 100;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 2rem;
-      height: 60px;
-      background: rgba(10, 13, 20, 0.85);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border);
-    }
-
-    .nav-logo {
-      font-size: 1.1rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      color: var(--text);
-      text-decoration: none;
-    }
-
-    .nav-logo span { color: var(--accent); }
-
-    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
-
-    .nav-links a {
-      color: var(--muted);
-      text-decoration: none;
-      font-size: 0.9rem;
-      transition: color 0.2s;
-    }
-
-    .nav-links a:hover { color: var(--text); }
-
-    /* TAB STRIP — sits below hero, sticks to top while scrolling */
-    #tab-strip {
-      position: sticky;
-      top: 60px;
-      left: 0; right: 0;
-      z-index: 99;
-      display: flex;
-      justify-content: center;
-      padding: 0.75rem 0;
-      background: rgba(10, 13, 20, 0.95);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border);
-    }
-
-    /* TAB SWITCHER */
-    .tab-bar {
-      display: flex;
-      gap: 0.25rem;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 0.25rem;
-    }
-
-    .tab-btn {
-      background: none;
-      border: none;
-      color: var(--muted);
-      font-size: 0.875rem;
-      font-weight: 600;
-      padding: 0.45rem 3rem;
-      border-radius: 7px;
-      cursor: pointer;
-      transition: background 0.18s, color 0.18s;
-      letter-spacing: 0.01em;
-    }
-
-    .tab-btn:hover { color: var(--text); }
-
-    .tab-btn.active {
-      background: var(--accent);
-      color: #fff;
-    }
-
-    /* hide/show tab panels */
-    .tab-panel { display: block; }
-    .tab-panel.hidden { display: none; }
-
-    .btn-gh {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--text) !important;
-      padding: 0.4rem 1rem;
-      border-radius: 8px;
-      font-size: 0.875rem !important;
-      font-weight: 500;
-      transition: background 0.2s, border-color 0.2s !important;
-    }
-
-    .btn-gh:hover { background: var(--border) !important; border-color: var(--accent) !important; color: var(--text) !important; }
-
-    /* HERO */
-    .hero {
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      padding: 6rem 2rem 4rem;
-      position: relative;
-    }
-
-    .hero::before {
-      content: '';
-      position: absolute;
-      top: -200px; left: 50%; transform: translateX(-50%);
-      width: 900px; height: 600px;
-      background: radial-gradient(ellipse at center, rgba(124, 106, 247, 0.15) 0%, transparent 70%);
-      pointer-events: none;
-    }
-
-    .hero::after {
-      content: '';
-      position: absolute;
-      bottom: -100px; right: -200px;
-      width: 600px; height: 400px;
-      background: radial-gradient(ellipse at center, rgba(94, 234, 212, 0.07) 0%, transparent 70%);
-      pointer-events: none;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      background: rgba(124, 106, 247, 0.1);
-      border: 1px solid rgba(124, 106, 247, 0.3);
-      color: var(--accent);
-      font-size: 0.8rem;
-      font-weight: 600;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      padding: 0.3rem 0.8rem;
-      border-radius: 99px;
-      margin-bottom: 1.5rem;
-      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-      cursor: default;
-      will-change: transform;
-    }
-
-    .badge:hover {
-      border-color: var(--accent);
-      background: rgba(124, 106, 247, 0.2);
-      transform: translateY(-6px) scale(1.02);
-      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px var(--accent), 0 8px 32px rgba(124,106,247,0.2);
-    }
-
-    .hero-logo {
-      transition: transform 0.2s ease, filter 0.2s ease;
-      will-change: transform;
-      cursor: pointer;
-      border-radius: var(--radius);
-    }
-
-    .hero-logo:hover {
-      transform: translateY(-6px) scale(1.02);
-      filter: drop-shadow(0 0 36px rgba(124,106,247,0.6)) !important;
-    }
-
-    .badge::before {
-      content: '';
-      width: 6px; height: 6px;
-      background: var(--accent);
-      border-radius: 50%;
-    }
-
-    h1 {
-      font-size: clamp(2.8rem, 6vw, 5rem);
-      font-weight: 800;
-      letter-spacing: -0.04em;
-      line-height: 1.05;
-      margin-bottom: 1.25rem;
-    }
-
-    h1 .gradient {
-      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-
-    .tc-terra { color: var(--accent); }
-
-    .hero-sub {
-      font-size: clamp(1rem, 2vw, 1.2rem);
-      color: var(--muted);
-      max-width: 560px;
-      margin-bottom: 2.5rem;
-    }
-
-    .hero-actions {
-      display: flex;
-      gap: 1rem;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-
-    .btn-primary {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      background: var(--accent);
-      color: #fff;
-      text-decoration: none;
-      padding: 0.75rem 1.75rem;
-      border-radius: 10px;
-      font-weight: 600;
-      font-size: 0.95rem;
-      transition: opacity 0.2s, transform 0.15s;
-    }
-
-    .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
-
-    .btn-outline {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      background: transparent;
-      color: var(--text);
-      text-decoration: none;
-      padding: 0.75rem 1.75rem;
-      border-radius: 10px;
-      font-weight: 600;
-      font-size: 0.95rem;
-      border: 1px solid var(--border);
-      transition: border-color 0.2s, background 0.2s, transform 0.15s;
-    }
-
-    .btn-outline:hover { border-color: var(--accent); background: rgba(124,106,247,0.07); transform: translateY(-1px); }
-
-    /* TERMINAL SNIPPET */
-    .terminal-wrap {
-      margin-top: 4rem;
-      width: 100%;
-      max-width: 680px;
-      border-radius: var(--radius);
-      overflow: hidden;
-      border: 1px solid var(--border);
-      box-shadow: 0 24px 80px rgba(0,0,0,0.5);
-      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-      will-change: transform;
-      cursor: pointer;
-    }
-
-    .terminal-wrap:hover {
-      border-color: var(--accent);
-      box-shadow: 0 32px 96px rgba(124,106,247,0.25), 0 24px 80px rgba(0,0,0,0.5);
-      transform: translateY(-6px) scale(1.02);
-    }
-
-    .terminal-bar {
-      background: var(--surface2);
-      padding: 0.6rem 1rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .dot { width: 12px; height: 12px; border-radius: 50%; }
-    .dot-r { background: #ff5f57; }
-    .dot-y { background: #ffbd2e; }
-    .dot-g { background: #28c840; }
-
-    .terminal-label {
-      font-size: 0.75rem;
-      color: var(--muted);
-      margin-left: auto;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-    }
-
-    .terminal-body {
-      background: var(--code-bg);
-      padding: 1.25rem 1.5rem;
-      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-      font-size: 0.85rem;
-      line-height: 1.8;
-    }
-
-    .terminal-body .prompt { color: var(--accent2); user-select: none; }
-    .terminal-body .cmd { color: var(--text); }
-    .terminal-body .flag { color: var(--accent); }
-    .terminal-body .val { color: #fbbf24; }
-    .terminal-body .comment { color: var(--muted); }
-    .terminal-body .out { color: #4ade80; }
-
-    /* SECTION LAYOUT */
-    section {
-      padding: 5rem 2rem;
-      max-width: 1100px;
-      margin: 0 auto;
-    }
-
-    .section-label {
-      font-size: 0.75rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 0.75rem;
-    }
-
-    h2 {
-      font-size: clamp(1.6rem, 3vw, 2.4rem);
-      font-weight: 700;
-      letter-spacing: -0.03em;
-      margin-bottom: 1rem;
-    }
-
-    .section-intro {
-      color: var(--muted);
-      max-width: 600px;
-      margin-bottom: 3rem;
-      font-size: 1.05rem;
-    }
-
-    /* HOW IT WORKS */
-    .steps {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 1.5rem;
-    }
-
-    .step {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.75rem;
-      position: relative;
-      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-    }
-
-    .step:hover {
-      border-color: var(--accent);
-      background: var(--surface2);
-      transform: translateY(-6px) scale(1.02);
-      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px var(--accent), 0 8px 32px rgba(124,106,247,0.2);
-    }
-
-    .step-num {
-      font-size: 0.7rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      color: var(--accent);
-      margin-bottom: 0.75rem;
-    }
-
-    .step h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; color: #d4f700; }
-    .step p { font-size: 0.9rem; color: var(--muted); }
-
-    /* SERVICES */
-    .service-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.25rem;
-    }
-
-    .service-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.5rem;
-      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-    }
-
-    .service-card:hover {
-      border-color: var(--accent2);
-      background: var(--surface2);
-      transform: translateY(-6px) scale(1.02);
-      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px var(--accent2), 0 8px 32px rgba(94,234,212,0.15);
-    }
-
-    .service-card h3 {
-      font-size: 0.85rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: var(--accent2);
-      margin-bottom: 1rem;
-    }
-
-    .tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-    }
-
-    .tag {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      font-size: 0.8rem;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      padding: 0.2rem 0.6rem;
-      border-radius: 6px;
-    }
-
-    /* OUTPUT */
-    .output-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1.5rem;
-    }
-
-    @media (max-width: 640px) { .output-grid { grid-template-columns: 1fr; } }
-
-    .output-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.5rem;
-      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-    }
-
-    .output-card:hover {
-      border-color: var(--accent);
-      background: var(--surface2);
-      transform: translateY(-6px) scale(1.02);
-      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px var(--accent), 0 8px 32px rgba(124,106,247,0.2);
-    }
-
-    .output-card h3 {
-      font-size: 0.95rem;
-      font-weight: 600;
-      margin-bottom: 0.4rem;
-    }
-
-    .output-card p {
-      font-size: 0.875rem;
-      color: var(--muted);
-      margin-bottom: 1rem;
-    }
-
-    pre {
-      background: var(--code-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1rem;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 0.8rem;
-      line-height: 1.6;
-      overflow-x: auto;
-      color: var(--text);
-    }
-
-    pre .kw { color: var(--accent); }
-    pre .str { color: #fbbf24; }
-    pre .cm { color: var(--muted); }
-
-    /* QUICKSTART */
-    .qs-steps {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-    }
-
-    .qs-step {
-      display: grid;
-      grid-template-columns: 32px 1fr;
-      gap: 1rem;
-      align-items: start;
-    }
-
-    .qs-num {
-      width: 32px; height: 32px;
-      background: rgba(124,106,247,0.15);
-      border: 1px solid rgba(124,106,247,0.3);
-      color: var(--accent);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.8rem;
-      font-weight: 700;
-      flex-shrink: 0;
-      margin-top: 2px;
-    }
-
-    .qs-content h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.4rem; }
-    .qs-content p { font-size: 0.875rem; color: var(--muted); margin-bottom: 0.5rem; }
-
-    code {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      padding: 0.1em 0.4em;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 0.85em;
-      color: var(--accent2);
-    }
-
-    /* WHY HARD */
-    .hard-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 1.5rem;
-      margin-top: 2.5rem;
-    }
-
-    .hard-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.75rem;
-      border-left: 3px solid var(--accent);
-      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-    }
-
-    .hard-card:hover {
-      border-color: var(--accent);
-      background: var(--surface2);
-      transform: translateY(-6px) scale(1.02);
-      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px var(--accent), 0 8px 32px rgba(124,106,247,0.2);
-    }
-
-    .hard-card h3 {
-      font-size: 1rem;
-      font-weight: 600;
-      color: #d4f700;
-      margin-bottom: 0.75rem;
-    }
-
-    .hard-card p {
-      font-size: 0.9rem;
-      color: var(--muted);
-      line-height: 1.7;
-    }
-
-    .hard-card p + p { margin-top: 0.75rem; }
-
-    /* COPY BUTTON */
-    .pre-wrap {
-      position: relative;
-    }
-
-    .copy-btn {
-      position: absolute;
-      top: 0.6rem;
-      right: 0.6rem;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
-      font-size: 0.72rem;
-      font-weight: 500;
-      padding: 0.25rem 0.6rem;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
-      user-select: none;
-    }
-
-    .copy-btn:hover {
-      background: var(--border);
-      color: var(--text);
-      border-color: var(--accent);
-    }
-
-    .copy-btn.copied {
-      color: var(--accent2);
-      border-color: var(--accent2);
-    }
-
-    /* DIVIDER */
-    .divider {
-      border: none;
-      border-top: 1px solid var(--border);
-      margin: 0;
-    }
-
-    /* FOOTER */
-    footer {
-      text-align: center;
-      padding: 3rem 2rem;
-      color: var(--muted);
-      font-size: 0.875rem;
-      border-top: 1px solid var(--border);
-    }
-
-    footer a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
-    footer a:hover { color: var(--accent); }
-
-    /* RESPONSIVE */
-    @media (max-width: 640px) {
-      nav { padding: 0 1rem; }
-      .nav-links a:not(.btn-gh) { display: none; }
-    }
-  </style>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1534132340710618" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
+<!-- ADSENSE TOP -->
+<div id="ad-top" style="display:none; text-align:center; background: var(--bg); border-bottom: 1px solid var(--border);">
+  <ins class="adsbygoogle"
+       style="display:block"
+       data-ad-client="ca-pub-1534132340710618"
+       data-ad-slot="7720587852"
+       data-ad-format="auto"
+       data-full-width-responsive="true"></ins>
+  <script>
+    (adsbygoogle = window.adsbygoogle || []).push({});
+    new MutationObserver(function(mutations, obs) {
+      var ins = document.querySelector('#ad-top ins');
+      if (ins && ins.getAttribute('data-ad-status') === 'filled') {
+        document.getElementById('ad-top').style.display = 'block';
+        obs.disconnect();
+      }
+    }).observe(document.querySelector('#ad-top ins'), { attributes: true, attributeFilter: ['data-ad-status'] });
+  </script>
+</div>
+
 <!-- NAV -->
 <nav>
-  <a class="nav-logo" href="#"><span>Cloud</span>toRepo</a>
+  <a class="nav-logo" href="index.html"><span>Cloud</span>toRepo</a>
   <div class="nav-links">
     <a class="btn-gh" href="https://github.com/andrewbakercloudscale/cloudtorepo" target="_blank" rel="noopener">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -659,10 +58,10 @@
 </nav>
 
 <!-- HERO -->
-<section class="hero">
-  <img src="CloudToRepo.jpeg" alt="CloudtoRepo" class="hero-logo" style="width:480px;height:auto;object-fit:contain;margin-bottom:1.5rem;" />
-  <div class="badge">Open Source · MIT License</div>
-  <h1>Reverse-engineer your AWS estate<br>into <span class="gradient">Terraform</span><br>with <span class="tc-terra">Cloud</span>toRepo</h1>
+<div class="hero">
+  <img src="CloudToRepo.jpeg" alt="CloudtoRepo" class="hero-logo" style="width:480px;height:auto;object-fit:contain;margin-bottom:1.5rem;mix-blend-mode:screen;" />
+  <div class="badge">Open Source &nbsp;·&nbsp; MIT License</div>
+  <h1>Reverse-engineer your AWS estate<br>into <span class="gradient">Terraform</span></h1>
   <p class="hero-sub">
     CloudtoRepo scans your AWS account and generates ready-to-use Terraform
     <code style="background:rgba(94,234,212,0.1);border-color:rgba(94,234,212,0.2);color:var(--accent2);">import {}</code> blocks,
@@ -673,7 +72,7 @@
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       View on GitHub
     </a>
-    <a class="btn-outline" href="#quickstart">Get started &darr;</a>
+    <a class="btn-outline" href="#explore">See what it does &darr;</a>
   </div>
 
   <div class="terminal-wrap">
@@ -696,18 +95,46 @@
       <div><span class="out">Done. Output written to ./tf-output/</span></div>
     </div>
   </div>
-</section>
-
-<!-- TAB STRIP — always visible below hero -->
-<div id="tab-strip">
-  <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
-  <button class="tab-btn" onclick="switchTab('deepdive')">Deep Dive</button>
 </div>
 
-<hr class="divider" data-tab="overview" />
+<!-- EXPLORE / NAV TILES -->
+<section id="explore">
+  <div class="section-label">Where to go</div>
+  <h2>Explore CloudtoRepo</h2>
+  <p class="section-intro">Pick a section — each page covers one part of the story in full detail.</p>
+
+  <div class="nav-tiles">
+
+    <a href="quickstart.html" class="nav-tile reveal">
+      <div class="nav-tile-icon">⚡</div>
+      <div class="nav-tile-label">Getting started</div>
+      <h3>Quickstart</h3>
+      <p>Four commands to go from a fresh clone to fully-populated Terraform files across any region, service set, or AWS account. Includes named profiles, tag filtering, and partial-scan resume.</p>
+      <span class="nav-tile-cta">Go to Quickstart →</span>
+    </a>
+
+    <a href="services.html" class="nav-tile reveal" style="transition-delay:0.1s;">
+      <div class="nav-tile-icon">🗺️</div>
+      <div class="nav-tile-label">Coverage</div>
+      <h3>Services &amp; quality</h3>
+      <p>65+ AWS services covered — compute, networking, data, security, AI/ML, and more. Backed by a 112-test BATS suite across 7 suites with zero real credentials needed.</p>
+      <span class="nav-tile-cta">Go to Services →</span>
+    </a>
+
+    <a href="reference.html" class="nav-tile reveal" style="transition-delay:0.2s;">
+      <div class="nav-tile-icon">📖</div>
+      <div class="nav-tile-label">Commands</div>
+      <h3>Full reference</h3>
+      <p>Complete command reference for all six tools: output files, drift detection, reconcile coverage scoring, Markdown reports, the run automation wrapper, and the import state helper.</p>
+      <span class="nav-tile-cta">Go to Reference →</span>
+    </a>
+
+  </div>
+</section>
 
 <!-- WHY HARD -->
-<section id="why-hard" data-tab="overview">
+<hr class="divider" />
+<section id="why-hard">
   <div class="section-label">Context</div>
   <h2>Why this is hard, and why most guides get it wrong</h2>
   <p class="section-intro" style="max-width:100%;">
@@ -719,7 +146,7 @@
   </p>
 
   <div class="hard-grid">
-    <div class="hard-card">
+    <div class="hard-card reveal">
       <h3>The tooling is older than it appears</h3>
       <p>
         Terraformer, the tool most guides recommend, was built by the Waze engineering team
@@ -733,7 +160,7 @@
         but neither should be your primary strategy in 2026.
       </p>
     </div>
-    <div class="hard-card">
+    <div class="hard-card reveal">
       <h3>AWS was never designed to be reverse-compiled</h3>
       <p>
         Resources reference each other in ways that tooling will not always catch. Some
@@ -748,10 +175,9 @@
   </div>
 </section>
 
-<hr class="divider" data-tab="overview" />
-
 <!-- HOW IT WORKS -->
-<section id="how-it-works" data-tab="overview">
+<hr class="divider" />
+<section id="how-it-works">
   <div class="section-label">How it works</div>
   <h2>From live AWS to Terraform in minutes</h2>
   <p class="section-intro">
@@ -759,22 +185,22 @@
     needed to bring them under version control, with no manual resource hunting required.
   </p>
   <div class="steps">
-    <div class="step">
+    <div class="step reveal">
       <div class="step-num">STEP 01</div>
       <h3>Scan your account</h3>
       <p>Run the script against one region or sweep an entire organisation across multiple accounts and regions.</p>
     </div>
-    <div class="step">
+    <div class="step reveal">
       <div class="step-num">STEP 02</div>
       <h3>Import blocks generated</h3>
       <p>One <code>import {}</code> block per discovered resource, grouped into per-service directories, ready for Terraform 1.5+.</p>
     </div>
-    <div class="step">
+    <div class="step reveal">
       <div class="step-num">STEP 03</div>
       <h3>Auto-populate config</h3>
       <p>Run <code>terraform plan -generate-config-out=generated.tf</code> in any service dir. Terraform reads live state and writes fully-populated HCL.</p>
     </div>
-    <div class="step">
+    <div class="step reveal">
       <div class="step-num">STEP 04</div>
       <h3>Detect drift &amp; report</h3>
       <p>Run <code>drift.sh</code> regularly to catch resources created or deleted outside Terraform. Use <code>--apply</code> to patch <code>imports.tf</code>, then <code>report.sh</code> to generate a Markdown summary.</p>
@@ -782,676 +208,36 @@
   </div>
 </section>
 
-<hr class="divider" data-tab="overview" />
-
-<!-- SERVICES -->
-<section id="services" data-tab="overview">
-  <div class="section-label">Supported services</div>
-  <h2>65+ AWS services covered</h2>
-  <p class="section-intro">All the core services you need to bring a real-world AWS estate under Terraform control.</p>
-  <div class="service-grid">
-    <div class="service-card">
-      <h3>Compute</h3>
-      <div class="tags">
-        <span class="tag">ec2</span><span class="tag">ebs</span><span class="tag">ecs</span><span class="tag">eks</span><span class="tag">lambda</span>
-      </div>
-      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">EKS includes clusters, node groups, addons, and Fargate profiles.</p>
-    </div>
-    <div class="service-card">
-      <h3>Networking</h3>
-      <div class="tags">
-        <span class="tag">vpc</span><span class="tag">elb</span><span class="tag">cloudfront</span><span class="tag">route53</span><span class="tag">acm</span><span class="tag">transitgateway</span><span class="tag">vpcendpoints</span>
-      </div>
-      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">VPC includes subnets, security groups, route tables, internet gateways, and NAT gateways.</p>
-    </div>
-    <div class="service-card">
-      <h3>Data</h3>
-      <div class="tags">
-        <span class="tag">rds</span><span class="tag">dynamodb</span><span class="tag">elasticache</span><span class="tag">msk</span><span class="tag">s3</span><span class="tag">efs</span><span class="tag">opensearch</span><span class="tag">redshift</span><span class="tag">documentdb</span>
-      </div>
-    </div>
-    <div class="service-card">
-      <h3>Streaming</h3>
-      <div class="tags">
-        <span class="tag">kinesis</span><span class="tag">firehose</span>
-      </div>
-    </div>
-    <div class="service-card">
-      <h3>Integration</h3>
-      <div class="tags">
-        <span class="tag">sqs</span><span class="tag">sns</span><span class="tag">apigateway</span><span class="tag">eventbridge</span><span class="tag">stepfunctions</span><span class="tag">ses</span>
-      </div>
-    </div>
-    <div class="service-card">
-      <h3>Security &amp; Compliance</h3>
-      <div class="tags">
-        <span class="tag">iam</span><span class="tag">kms</span><span class="tag">secretsmanager</span><span class="tag">wafv2</span><span class="tag">config</span><span class="tag">cloudtrail</span><span class="tag">guardduty</span>
-      </div>
-      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">IAM includes roles, instance profiles, and OIDC providers.</p>
-    </div>
-    <div class="service-card">
-      <h3>Platform &amp; CI/CD</h3>
-      <div class="tags">
-        <span class="tag">ecr</span><span class="tag">ssm</span><span class="tag">cloudwatch</span><span class="tag">backup</span><span class="tag">codepipeline</span><span class="tag">codebuild</span>
-      </div>
-    </div>
-    <div class="service-card">
-      <h3>Auth</h3>
-      <div class="tags">
-        <span class="tag">cognito</span>
-      </div>
-      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">User pools, clients, and identity pools, fully paginated beyond the 60-pool API limit.</p>
-    </div>
-    <div class="service-card">
-      <h3>ETL &amp; Analytics</h3>
-      <div class="tags">
-        <span class="tag">glue</span><span class="tag">athena</span><span class="tag">lakeformation</span><span class="tag">memorydb</span><span class="tag">emr</span>
-      </div>
-    </div>
-    <div class="service-card">
-      <h3>Storage &amp; Transfer</h3>
-      <div class="tags">
-        <span class="tag">fsx</span><span class="tag">transfer</span>
-      </div>
-    </div>
-    <div class="service-card">
-      <h3>App Platform</h3>
-      <div class="tags">
-        <span class="tag">elasticbeanstalk</span><span class="tag">apprunner</span><span class="tag">lightsail</span><span class="tag">connect</span><span class="tag">appconfig</span>
-      </div>
-    </div>
-    <div class="service-card">
-      <h3>AI / ML</h3>
-      <div class="tags">
-        <span class="tag">bedrock</span><span class="tag">sagemaker</span>
-      </div>
-      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">Bedrock agents &amp; knowledge bases; SageMaker domains &amp; endpoints.</p>
-    </div>
-    <div class="service-card">
-      <h3>Governance &amp; Org</h3>
-      <div class="tags">
-        <span class="tag">servicecatalog</span><span class="tag">organizations</span><span class="tag">ram</span><span class="tag">servicequotas</span><span class="tag">xray</span>
-      </div>
-      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">Organizations covers accounts &amp; OUs; RAM covers resource shares across accounts.</p>
-    </div>
-  </div>
-</section>
-
-<hr class="divider" data-tab="deepdive" />
-
-<!-- OUTPUT -->
-<section id="output" data-tab="deepdive">
-  <div class="section-label">Output</div>
-  <h2>Clean, structured Terraform files</h2>
-  <p class="section-intro">Each service gets its own directory with three files that Terraform can use immediately.</p>
-  <div class="output-grid">
-    <div class="output-card">
-      <h3>imports.tf</h3>
-      <p>One <code>import {}</code> block per discovered resource.</p>
-<pre><span class="kw">import</span> {
-  to = aws_eks_cluster.<span class="str">cluster_production</span>
-  id = <span class="str">"production"</span>
-}
-
-<span class="kw">import</span> {
-  to = aws_rds_instance.<span class="str">db_primary</span>
-  id = <span class="str">"prod-postgres-01"</span>
-}</pre>
-    </div>
-    <div class="output-card">
-      <h3>backend.tf</h3>
-      <p>S3 remote state configuration and AWS provider block, ready to init.</p>
-<pre><span class="kw">terraform</span> {
-  backend <span class="str">"s3"</span> {
-    bucket = <span class="str">"my-tf-state"</span>
-    key    = <span class="str">"us-east-1/eks/terraform.tfstate"</span>
-    region = <span class="str">"us-east-1"</span>
-  }
-}</pre>
-    </div>
-    <div class="output-card">
-      <h3>resources.tf</h3>
-      <p>Empty resource skeletons matching every import block, populated by <code>terraform plan -generate-config-out</code>.</p>
-<pre><span class="kw">resource</span> <span class="str">"aws_eks_cluster"</span> <span class="str">"cluster_production"</span> {
-  <span class="cm"># populated by terraform plan</span>
-  <span class="cm"># -generate-config-out=generated.tf</span>
-}</pre>
-    </div>
-    <div class="output-card">
-      <h3>Directory structure</h3>
-      <p>Organised by account &rarr; region &rarr; service for easy navigation.</p>
-<pre>tf-output/
-&#x251C;&#x2500;&#x2500; summary.txt
-&#x2514;&#x2500;&#x2500; 123456789012/
-    &#x251C;&#x2500;&#x2500; us-east-1/
-    &#x2502;   &#x251C;&#x2500;&#x2500; ec2/
-    &#x2502;   &#x251C;&#x2500;&#x2500; eks/
-    &#x2502;   &#x2514;&#x2500;&#x2500; rds/
-    &#x2514;&#x2500;&#x2500; eu-west-1/</pre>
-    </div>
-  </div>
-</section>
-
-<hr class="divider" data-tab="deepdive" />
-
-<!-- DRIFT -->
-<section id="drift" data-tab="deepdive">
-  <div class="section-label">Drift detection</div>
-  <h2>Stay in sync after day one</h2>
-  <p class="section-intro">
-    Once your Terraform baseline is committed, <code>drift.sh</code> re-scans AWS and
-    diffs the results against your <code>imports.tf</code> files with no AWS Resource Explorer required.
-  </p>
-  <div class="steps">
-    <div class="step">
-      <div class="step-num">NEW</div>
-      <h3>Resources added outside Terraform</h3>
-      <p>Found in AWS but missing from <code>imports.tf</code>. With <code>--apply</code>, new <code>import {}</code> blocks are appended automatically.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">REMOVED</div>
-      <h3>Resources deleted outside Terraform</h3>
-      <p>Present in <code>imports.tf</code> but no longer in AWS. With <code>--apply</code>, stale blocks are commented out with a timestamp.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">CI</div>
-      <h3>Run on a schedule</h3>
-      <p>Drop <code>drift.sh</code> into a nightly CI job. Pass <code>--report ./drift.txt</code> to save output, then feed it into <code>report.sh</code> to generate a Markdown summary.</p>
-    </div>
-  </div>
-
-  <div style="margin-top:2rem;">
-    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Sample drift report</h3>
-<pre><span class="cm"># report only</span>
-./drift.sh --output ./tf-output --regions <span class="str">"us-east-1"</span>
-
-<span class="cm"># apply changes to imports.tf</span>
-./drift.sh --output ./tf-output --regions <span class="str">"us-east-1"</span> --apply
-
-<span class="cm">-------------------------------------------------------</span>
-<span class="kw">NEW</span>  (2 resource(s) found in AWS, not in imports.tf)
-  + aws_instance.web_server_new  (id: i-0abc123def456)
-  + aws_instance.batch_worker    (id: i-0def789abc012)
-<span class="kw">REMOVED</span>  (1 resource(s) in imports.tf, no longer in AWS)
-  - aws_instance.old_bastion     (id: i-0111222333444)
-<span class="cm">-------------------------------------------------------</span>
-Unchanged:               22
-New (not yet imported):   2
-Removed (stale):          1</pre>
-    </div>
-  </div>
-</section>
-
-<hr class="divider" data-tab="deepdive" />
-
-<!-- RECONCILE -->
-<section id="reconcile" data-tab="deepdive">
-  <div class="section-label">Coverage check</div>
-  <h2>Find what you missed</h2>
-  <p class="section-intro">
-    After exporting, <code>reconcile.sh</code> cross-references your <code>imports.tf</code>
-    files against AWS Resource Explorer to surface any resources that were skipped.
-    No Resource Explorer? Use <code>--local</code> for an instant per-service summary from
-    the output directory alone.
-  </p>
-  <div class="steps">
-    <div class="step">
-      <div class="step-num">%</div>
-      <h3>Coverage score</h3>
-      <p>Compares every import ID against all ARNs returned by Resource Explorer. Reports matched, missed, and overall coverage percentage.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">LOCAL</div>
-      <h3>No Resource Explorer needed</h3>
-      <p><code>--local</code> skips the API call entirely and prints import block counts per account / region / service straight from the output directory. Useful during initial setup.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">LIST</div>
-      <h3>Discover supported services</h3>
-      <p>Run <code>./cloudtorepo.sh --services list</code> or <code>./drift.sh --services list</code> to print all supported service names — useful for scripting or building a custom <code>--services</code> argument.</p>
-    </div>
-  </div>
-
-  <div style="margin-top:2rem;display:flex;flex-direction:column;gap:1rem;">
-    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">reconcile.sh — with Resource Explorer</h3>
-<pre><span class="cm"># full coverage check (requires Resource Explorer aggregator index)</span>
-./reconcile.sh --output ./tf-output --index-region us-east-1
-
-Summary
--------
-Total resources (Resource Explorer):  847
-Matched to exported import blocks:    801
-Potentially missed:                    46
-Coverage:                              94%</pre>
-    </div>
-    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">reconcile.sh --local — no Resource Explorer required</h3>
-<pre><span class="cm"># local summary — no AWS API calls beyond listing the output directory</span>
-./reconcile.sh --output ./tf-output --local
-
-Account / Region / Service        Import blocks
-------------------------------------------
-123456789012 / us-east-1 / ec2           47
-123456789012 / us-east-1 / eks           12
-123456789012 / us-east-1 / rds            8
-123456789012 / us-east-1 / s3             5
-123456789012 / eu-west-1 / ec2           31
-------------------------------------------
-Total                                   103
-
-<span class="cm">Tip: enable Resource Explorer for full coverage scoring:</span>
-<span class="cm">  aws resource-explorer-2 create-index --type AGGREGATOR --region us-east-1</span></pre>
-    </div>
-    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">--services list — discover all supported services</h3>
-<pre><span class="cm"># print every supported service name, one per line</span>
-./cloudtorepo.sh --services list
-
-acm
-apigateway
-appconfig
-apprunner
-athena
-backup
-bedrock
-cloudfront
-cloudtrail
-cloudwatch
-codebuild
-codepipeline
-cognito
-config
-connect
-documentdb
-dynamodb
-ebs
-ecr
-ecs
-eks
-elasticache
-elb
-emr
-...and more</pre>
-    </div>
-  </div>
-</section>
-
-<hr class="divider" data-tab="deepdive" />
-
-<!-- REPORT -->
-<section id="report" data-tab="deepdive">
-  <div class="section-label">Reporting</div>
-  <h2>One-command Markdown reports</h2>
-  <p class="section-intro">
-    <code>report.sh</code> reads any <code>cloudtorepo.sh</code> output directory and generates a clean Markdown document — service breakdown, import counts, and an optional drift section from a <code>drift.sh --report</code> file.
-  </p>
-  <div class="steps">
-    <div class="step">
-      <div class="step-num">MD</div>
-      <h3>Markdown output</h3>
-      <p>Write to stdout or pass <code>--out report.md</code>. Paste it into a PR description, Confluence, or a GitHub wiki — it renders instantly.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">DRIFT</div>
-      <h3>Drift section included</h3>
-      <p>Pass <code>--drift ./drift.txt</code> (produced by <code>drift.sh --report</code>) to append a NEW / REMOVED breakdown to the same document.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">CI</div>
-      <h3>Commit it to git</h3>
-      <p>Run <code>report.sh</code> at the end of every nightly drift job and commit <code>report.md</code> to a <code>infra-reports</code> branch — instant audit trail with no extra tooling.</p>
-    </div>
-  </div>
-
-  <div style="margin-top:2rem;">
-    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Usage</h3>
-<pre><span class="cm"># basic — prints to stdout</span>
-./report.sh --output ./tf-output
-
-<span class="cm"># with drift section, write to file</span>
-./drift.sh --output ./tf-output --report ./drift.txt
-./report.sh --output ./tf-output \
-  --drift  ./drift.txt \
-  --title  <span class="str">"Production AWS Report — March 2026"</span> \
-  --out    report.md</pre>
-    </div>
-  </div>
-
-  <div style="margin-top:1.5rem;">
-    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Example report output — account 987267051295 / af-south-1</h3>
-<pre><span class="kw"># Production AWS Report — March 2026</span>
-
-<span class="cm">**Generated:** 2026-03-25T11:06:09Z</span>
-<span class="cm">**Output directory:** `./tf-output`</span>
-
----
-
-<span class="kw">## Summary</span>
-
-| | |
-|---|---|
-| <span class="str">**Account(s)**</span> | `987267051295` |
-| <span class="str">**Region(s)**</span>  | af-south-1 |
-| <span class="str">**Total import blocks**</span> | <span class="kw">**366**</span> |
-
-<span class="kw">## Resources by Service</span>
-
-### 987267051295 / af-south-1
-
-| Service | Import blocks |
-|---------|--------------|
-| `config`        | 319 |
-| `kms`           |   9 |
-| `vpc`           |   9 |
-| `sns`           |   8 |
-| `eventbridge`   |   4 |
-| `lambda`        |   4 |
-| `ebs`           |   3 |
-| `s3`            |   3 |
-| `ec2`           |   2 |
-| `servicecatalog`|   2 |
-| `acm`           |   1 |
-| `backup`        |   1 |
-| `sqs`           |   1 |
-
-<span class="kw">## Account Totals</span>
-
-| Account | Import blocks |
-|---------|--------------|
-| `987267051295` | 366 |
-| `123456789012` | 219 |
-
-<span class="kw">## Cross-Account Service Totals</span>
-
-| Service | Import blocks |
-|---------|--------------|
-| `config`  | 412 |
-| `vpc`     |  89 |
-| `ec2`     |  41 |
-| `kms`     |  18 |
-| `lambda`  |  12 |
-
----
-
-<span class="kw">## Drift Report</span>
-
-| Status | Count |
-|--------|-------|
-| Unchanged              | 358 |
-| New (not yet imported) |   0 |
-| <span class="kw">Removed (stale)</span>       |   <span class="kw">8</span> |
-
-<span class="cm">### 987267051295 / af-south-1 / vpc</span>
-<span class="kw">**REMOVED  (8 resource(s) in imports.tf, no longer in AWS)**</span>
-
-- `- aws_subnet.defaultvpcsubnetb  (id: subnet-93d3d4eb)`
-- `- aws_subnet.defaultvpcsubnetc  (id: subnet-52557418)`
-- `- aws_subnet.defaultvpcsubneta  (id: subnet-b156b3d8)`
-- `- aws_security_group.cloudflare_proxy  (id: sg-02c2539d27ffe5a5f)`
-- `- aws_security_group.launch_wizard_6  (id: sg-011a26aef17beff13)`
-- `- aws_security_group.launch_wizard_7  (id: sg-024bd977787fb2789)`
-- `- aws_route_table.defaultroutetable  (id: rtb-6157b208)`
-- `- aws_internet_gateway.defaultvpcigw  (id: igw-5a56b333)`</pre>
-    </div>
-  </div>
-</section>
-
-<hr class="divider" data-tab="deepdive" />
-
-<!-- RUN -->
-<section id="run" data-tab="deepdive">
-  <div class="section-label">Workflow automation</div>
-  <h2>One command to rule them all</h2>
-  <p class="section-intro">
-    After exporting, <code>run.sh</code> automates the <code>terraform init</code> +
-    <code>terraform plan -generate-config-out=generated.tf</code> step across every
-    service directory, no more running it manually per folder.
-  </p>
-  <div class="steps">
-    <div class="step">
-      <div class="step-num">AUTO</div>
-      <h3>Walk the entire output tree</h3>
-      <p>Finds every directory with an <code>imports.tf</code> and runs Terraform in it. Filter by account, region, or service to process a subset.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">×5</div>
-      <h3>Parallel runs</h3>
-      <p>Up to <code>--parallel 3</code> concurrent Terraform processes by default. Logs per directory, pass/fail/no-change summary at the end.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">FAST</div>
-      <h3>Parallel scans + auto-retry</h3>
-      <p><code>cloudtorepo.sh</code> and <code>drift.sh</code> scan up to <code>--parallel 5</code> services simultaneously. All AWS API calls automatically retry on throttling with exponential back-off.</p>
-    </div>
-  </div>
-
-  <div style="margin-top:2rem;">
-    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">run.sh usage</h3>
-<pre><span class="cm"># process everything</span>
-./run.sh --output ./tf-output
-
-<span class="cm"># filter to specific services and region</span>
-./run.sh --output ./tf-output \
-  --regions <span class="str">"us-east-1"</span> \
-  --services <span class="str">"ec2,eks,rds"</span>
-
-<span class="cm"># preview directories without running terraform</span>
-./run.sh --output ./tf-output --dry-run
-
-<span class="cm">-------------------------------------------------------</span>
-  [OK]        123456789012/us-east-1/eks
-  [OK]        123456789012/us-east-1/rds
-  [no-change] 123456789012/us-east-1/s3
-  [FAIL]      123456789012/us-east-1/iam  (see .run.log)
-<span class="cm">-------------------------------------------------------</span>
-Succeeded (changes written):  2
-No changes:                   1
-Failed:                       1</pre>
-    </div>
-  </div>
-</section>
-
-<hr class="divider" data-tab="deepdive" />
-
-<!-- IMPORT -->
-<section id="importsh" data-tab="deepdive">
-  <div class="section-label">Terraform import</div>
-  <h2>From import blocks to state in one command</h2>
-  <p class="section-intro">
-    After <code>run.sh</code> generates <code>generated.tf</code>, use <code>import.sh</code>
-    to actually call <code>terraform import</code> for every resource — skipping anything
-    already in state automatically.
-  </p>
-  <div class="steps">
-    <div class="step">
-      <div class="step-num">SKIP</div>
-      <h3>State-aware</h3>
-      <p>Runs <code>terraform state list</code> before each import. Resources already managed are silently skipped — safe to re-run as many times as needed.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">×N</div>
-      <h3>Parallel imports</h3>
-      <p>Pass <code>--parallel N</code> to import multiple service directories concurrently. Per-directory logs in <code>.import.log</code>, pass/fail summary at the end.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">DRY</div>
-      <h3>Preview first</h3>
-      <p><code>--dry-run</code> prints every <code>address (id: ...)</code> pair that would be imported without touching state. Use it to verify scope before committing.</p>
-    </div>
-  </div>
-
-  <div style="margin-top:2rem;">
-    <div class="output-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">import.sh usage</h3>
-<pre><span class="cm"># dry run — see what would be imported</span>
-./import.sh --output ./tf-output --dry-run
-
-<span class="cm"># import everything (sequential)</span>
-./import.sh --output ./tf-output
-
-<span class="cm"># import with parallel workers + auto terraform init</span>
-./import.sh --output ./tf-output --parallel 4 --init
-
-<span class="cm">-------------------------------------------------------</span>
-[INFO]  Importing resources (parallel=4)...
-[INFO]    [123456789012/us-east-1/ec2] importing aws_instance.web (id: i-0abc123)...
-[INFO]    [123456789012/us-east-1/rds] importing aws_db_instance.main (id: mydb)...
-[INFO]  =======================================================
-[INFO]  Resources imported:     47
-[INFO]  Resources skipped:       3  (already in state)
-[INFO]  Resources failed:        0
-[INFO]  =======================================================</pre>
-    </div>
-  </div>
-</section>
-
-<!-- QUICKSTART -->
-<section id="quickstart" data-tab="overview">
-  <div class="section-label">Quickstart</div>
-  <h2>Up and running in four commands</h2>
-  <p class="section-intro">Three tools required: AWS CLI v2, Terraform 1.5+, and jq. Works on the Bash that ships with macOS (3.2+).</p>
-  <p class="section-intro" style="font-size:0.9rem;color:var(--muted);margin-top:-0.75rem;">Install everything at once on macOS: <code>brew install awscli terraform jq</code></p>
-  <div class="qs-steps">
-    <div class="qs-step">
-      <div class="qs-num">1</div>
-      <div class="qs-content">
-        <h3>Clone the repo</h3>
-        <pre>git clone https://github.com/andrewbakercloudscale/cloudtorepo.git
-cd cloudtorepo
-chmod +x cloudtorepo.sh reconcile.sh drift.sh run.sh report.sh import.sh</pre>
-      </div>
-    </div>
-    <div class="qs-step">
-      <div class="qs-num">2</div>
-      <div class="qs-content">
-        <h3>Dry-run to preview resource counts</h3>
-        <pre>./cloudtorepo.sh \
-  --regions "us-east-1" \
-  --services "ec2,vpc,rds" \
-  --dry-run</pre>
-      </div>
-    </div>
-    <div class="qs-step">
-      <div class="qs-num">3</div>
-      <div class="qs-content">
-        <h3>Export with S3 remote state</h3>
-        <pre>./cloudtorepo.sh \
-  --regions "us-east-1,eu-west-1" \
-  --services "ec2,eks,rds,s3,vpc" \
-  --state-bucket my-tf-state-prod \
-  --parallel 5 \
-  --output ./tf-output</pre>
-      </div>
-    </div>
-    <div class="qs-step">
-      <div class="qs-num">4</div>
-      <div class="qs-content">
-        <h3>Named AWS profile (optional)</h3>
-        <pre>./cloudtorepo.sh \
-  --profile prod-readonly \
-  --regions "eu-west-1" \
-  --services "ec2,vpc,rds,eks" \
-  --output ./tf-output</pre>
-        <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">Pass any named profile from <code>~/.aws/config</code>. Works alongside <code>--role</code> for cross-account sweeps; the profile authenticates the base caller, the role is assumed per account.</p>
-      </div>
-    </div>
-    <div class="qs-step">
-      <div class="qs-num">5</div>
-      <div class="qs-content">
-        <h3>Filter by tags (optional)</h3>
-        <pre>./cloudtorepo.sh \
-  --regions "us-east-1" \
-  --tags "Env=prod,Team=sre" \
-  --output ./tf-output</pre>
-        <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">Only imports resources that carry the specified tags. Uses the Resource Groups Tagging API with no extra setup required beyond the tags themselves.</p>
-      </div>
-    </div>
-    <div class="qs-step">
-      <div class="qs-num">6</div>
-      <div class="qs-content">
-        <h3>Resume a partial scan (optional)</h3>
-        <pre>./cloudtorepo.sh \
-  --regions "us-east-1,eu-west-1" \
-  --output ./tf-output \
-  --resume</pre>
-        <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">Skips account/region/service combinations already written to the output directory. Safe to run again after a network interruption or timeout.</p>
-      </div>
-    </div>
-    <div class="qs-step">
-      <div class="qs-num">7</div>
-      <div class="qs-content">
-        <h3>Populate all service directories at once</h3>
-        <pre>./run.sh --output ./tf-output</pre>
-        <p style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">Runs <code>terraform init</code> + <code>terraform plan -generate-config-out=generated.tf</code> in every service directory. Review <code>generated.tf</code>, remove computed attributes, and commit.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<hr class="divider" data-tab="deepdive" />
-
-<!-- QUALITY -->
-<section id="quality" data-tab="deepdive" style="text-align:center;padding:3rem 1rem;">
-  <div class="section-label">Quality</div>
-  <h2>Tested before every commit</h2>
-  <p class="section-intro" style="max-width:640px;margin:0 auto 2rem;">
-    A 112-test BATS suite across 7 suites (mock AWS CLI and Terraform, no real credentials needed) and ShellCheck static analysis run automatically via a pre-commit hook and GitHub Actions CI — blocking any commit or push that introduces a regression.
-  </p>
-  <div style="display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;">
-    <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
-      <div style="font-size:2rem;font-weight:800;color:var(--accent);">112</div>
-      <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">automated tests</div>
-    </div>
-    <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
-      <div style="font-size:2rem;font-weight:800;color:var(--accent2);">7</div>
-      <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">test suites<br><span style="font-size:0.8rem;opacity:0.7;">cloudtorepo · drift · import · reconcile · report · run · common</span></div>
-    </div>
-    <div class="hard-card" style="flex:1;min-width:180px;max-width:220px;text-align:center;">
-      <div style="font-size:2rem;font-weight:800;color:#d4f700;">0</div>
-      <div style="font-size:0.85rem;color:var(--muted);margin-top:0.25rem;">real AWS credentials needed<br><span style="font-size:0.8rem;opacity:0.7;">mock AWS CLI in tests/helpers/</span></div>
-    </div>
-  </div>
-</section>
-
-<hr class="divider" data-tab="deepdive" />
-
 <!-- FOOTER -->
+<hr class="divider" />
 <footer>
-  <p style="margin-bottom:0.5rem;">
-    <strong style="color:var(--text);">cloudtorepo</strong> · open source, MIT licensed
-  </p>
-  <p style="margin-bottom:0.75rem;">
-    Built by <a href="https://andrewbaker.ninja" target="_blank" rel="noopener" style="color:var(--accent2);font-weight:600;text-decoration:none;transition:color 0.2s;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--accent2)'">Andrew Baker</a>
-    <span style="color:var(--border);">·</span>
-    <span style="color:var(--muted);font-size:0.8rem;">Hands on CIO of Capitec Bank</span>
-  </p>
-  <p>
+  <div>
+    <div class="footer-brand"><span>Cloud</span>toRepo</div>
+    <div class="footer-meta" style="margin-top:0.4rem;">Built by <a href="https://andrewbaker.ninja" target="_blank" rel="noopener">Andrew Baker</a> &middot; Group CIO, Capitec Bank</div>
+  </div>
+  <div class="footer-links">
     <a href="https://github.com/andrewbakercloudscale/cloudtorepo" target="_blank" rel="noopener">GitHub</a>
-    &nbsp;&middot;&nbsp;
+    <a href="https://github.com/andrewbakercloudscale/cloudtorepo/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
     <a href="https://andrewbaker.ninja/2026/03/21/reverse-engineering-your-aws-estate-into-terraform-using-cloudtorepo-org/" target="_blank" rel="noopener">Blog post</a>
-    &nbsp;&middot;&nbsp;
-    <a href="https://github.com/andrewbakercloudscale/cloudtorepo/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
-  </p>
+    <a href="https://andrewbaker.ninja" target="_blank" rel="noopener">andrewbaker.ninja</a>
+    <a href="https://pi2s3.com" target="_blank" rel="noopener">pi2s3.com</a>
+  </div>
 </footer>
 
 <script>
-  function switchTab(tab) {
-    document.querySelectorAll('.tab-btn').forEach(function(btn) {
-      btn.classList.toggle('active', btn.getAttribute('onclick').includes("'" + tab + "'"));
-    });
-    document.querySelectorAll('[data-tab]').forEach(function(el) {
-      el.style.display = el.dataset.tab === tab ? '' : 'none';
-    });
-  }
-  // Init — hide deep dive on load
-  document.querySelectorAll('[data-tab="deepdive"]').forEach(function(el) {
-    el.style.display = 'none';
-  });
+  (function() {
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) {
+      els.forEach(function(el) { el.classList.add('visible'); });
+      return;
+    }
+    var io = new IntersectionObserver(function(entries) {
+      entries.forEach(function(e) {
+        if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.08 });
+    els.forEach(function(el) { io.observe(el); });
+  })();
 </script>
 
 <script>

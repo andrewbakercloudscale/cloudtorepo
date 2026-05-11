@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# sync.sh — Deploy index.html to S3 and invalidate CloudFront.
+# sync.sh — Deploy site files to S3 and invalidate CloudFront.
 #
-# Uploads the cloudtorepo.com homepage to the S3 bucket and creates a
-# CloudFront invalidation so changes are live within ~30 seconds.
+# Uploads all HTML, CSS, and static assets for cloudtorepo.com to the S3
+# bucket and creates a CloudFront invalidation so changes are live within
+# ~30 seconds.
 #
 # Requirements: aws-cli >= 2, personal AWS CLI profile configured
 #
@@ -15,7 +16,6 @@ BUCKET="cloudtorepo"
 DISTRIBUTION_ID="ETOGUVSRE5GDD"
 PROFILE="personal"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INDEX="${SCRIPT_DIR}/index.html"
 
 usage() {
   grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'
@@ -33,12 +33,14 @@ function main() {
 
   command -v aws &>/dev/null || { echo "[ERROR] aws-cli not found — install from https://aws.amazon.com/cli/" >&2; exit 1; }
 
-  [[ -f "${INDEX}" ]] || { echo "[ERROR] index.html not found at ${INDEX}" >&2; exit 1; }
+  echo "[INFO]  Syncing HTML and CSS to s3://${BUCKET}/ ..."
+  aws s3 sync "${SCRIPT_DIR}" "s3://${BUCKET}/" \
+    --profile "${PROFILE}" \
+    --exclude "*" \
+    --include "*.html" \
+    --include "*.css"
 
-  echo "[INFO]  Uploading index.html to s3://${BUCKET}/ ..."
-  aws s3 cp "${INDEX}" "s3://${BUCKET}/index.html" --profile "${PROFILE}"
-
-  echo "[INFO]  Uploading image assets to s3://${BUCKET}/ ..."
+  echo "[INFO]  Syncing static assets to s3://${BUCKET}/ ..."
   aws s3 sync "${SCRIPT_DIR}" "s3://${BUCKET}/" \
     --profile "${PROFILE}" \
     --exclude "*" \
@@ -47,7 +49,8 @@ function main() {
     --include "*.jpeg" \
     --include "*.svg" \
     --include "*.webp" \
-    --include "*.ico"
+    --include "*.ico" \
+    --include "*.txt"
 
   echo "[INFO]  Creating CloudFront invalidation for distribution ${DISTRIBUTION_ID} ..."
   INVALIDATION_ID=$(aws cloudfront create-invalidation \

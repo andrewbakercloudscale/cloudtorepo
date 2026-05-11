@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quickstart — CloudtoRepo</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="index.html"><span>Cloud</span>toRepo</a>
+  <div class="nav-links">
+    <a href="index.html" class="hide-sm">← cloudtorepo.com</a>
+    <a class="btn-gh" href="https://github.com/andrewbakercloudscale/cloudtorepo" target="_blank" rel="noopener">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<!-- PAGE HERO -->
+<div class="page-hero">
+  <div class="page-hero-label">Getting started</div>
+  <h1>Up and running in four commands</h1>
+  <p>Three tools required: AWS CLI v2, Terraform 1.5+, and jq. Works on the Bash that ships with macOS (3.2+). Install everything at once on macOS: <code>brew install awscli terraform jq</code>. Clone the repo, run a dry-run, export your estate, then populate all service directories at once.</p>
+</div>
+
+<!-- QUICKSTART -->
+<hr class="divider" />
+<section id="quickstart">
+  <div class="section-label">Quickstart</div>
+  <h2>Up and running in four commands</h2>
+  <p class="section-intro">Three tools required: AWS CLI v2, Terraform 1.5+, and jq. All AWS API calls automatically retry on throttling with exponential back-off.</p>
+
+  <div class="qs-step reveal">
+    <div class="qs-num">1</div>
+    <div class="qs-content">
+      <h3>Clone the repo</h3>
+      <p>Clone and make all scripts executable.</p>
+      <pre>git clone https://github.com/andrewbakercloudscale/cloudtorepo.git
+cd cloudtorepo
+chmod +x cloudtorepo.sh reconcile.sh drift.sh run.sh report.sh import.sh</pre>
+    </div>
+  </div>
+
+  <div class="qs-step reveal">
+    <div class="qs-num">2</div>
+    <div class="qs-content">
+      <h3>Dry-run to preview resource counts</h3>
+      <p>Scan without writing any files. Shows resource counts per service before you commit to a full export.</p>
+      <pre>./cloudtorepo.sh \
+  --regions "us-east-1" \
+  --services "ec2,vpc,rds" \
+  --dry-run</pre>
+    </div>
+  </div>
+
+  <div class="qs-step reveal">
+    <div class="qs-num">3</div>
+    <div class="qs-content">
+      <h3>Export with S3 remote state</h3>
+      <p>Full export across regions and services. <code>--state-bucket</code> writes a ready-to-init <code>backend.tf</code> in each service directory. <code>--parallel 5</code> scans five services simultaneously.</p>
+      <pre>./cloudtorepo.sh \
+  --regions "us-east-1,eu-west-1" \
+  --services "ec2,eks,rds,s3,vpc" \
+  --state-bucket my-tf-state-prod \
+  --parallel 5 \
+  --output ./tf-output</pre>
+    </div>
+  </div>
+
+  <div class="qs-step reveal">
+    <div class="qs-num">4</div>
+    <div class="qs-content">
+      <h3>Named AWS profile (optional)</h3>
+      <p>Pass any named profile from <code>~/.aws/config</code>. Works alongside <code>--role</code> for cross-account sweeps; the profile authenticates the base caller, the role is assumed per account.</p>
+      <pre>./cloudtorepo.sh \
+  --profile prod-readonly \
+  --regions "eu-west-1" \
+  --services "ec2,vpc,rds,eks" \
+  --output ./tf-output</pre>
+    </div>
+  </div>
+
+  <div class="qs-step reveal">
+    <div class="qs-num">5</div>
+    <div class="qs-content">
+      <h3>Filter by tags (optional)</h3>
+      <p>Only imports resources that carry the specified tags. Uses the Resource Groups Tagging API with no extra setup required beyond the tags themselves.</p>
+      <pre>./cloudtorepo.sh \
+  --regions "us-east-1" \
+  --tags "Env=prod,Team=sre" \
+  --output ./tf-output</pre>
+    </div>
+  </div>
+
+  <div class="qs-step reveal">
+    <div class="qs-num">6</div>
+    <div class="qs-content">
+      <h3>Resume a partial scan (optional)</h3>
+      <p>Skips account/region/service combinations already written to the output directory. Safe to run again after a network interruption or timeout.</p>
+      <pre>./cloudtorepo.sh \
+  --regions "us-east-1,eu-west-1" \
+  --output ./tf-output \
+  --resume</pre>
+    </div>
+  </div>
+
+  <div class="qs-step reveal">
+    <div class="qs-num">7</div>
+    <div class="qs-content">
+      <h3>Populate all service directories at once</h3>
+      <p>Runs <code>terraform init</code> + <code>terraform plan -generate-config-out=generated.tf</code> in every service directory. Review <code>generated.tf</code>, remove computed attributes, and commit.</p>
+      <pre>./run.sh --output ./tf-output</pre>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<hr class="divider" />
+<footer>
+  <div>
+    <div class="footer-brand"><span>Cloud</span>toRepo</div>
+    <div class="footer-meta" style="margin-top:0.4rem;">Built by <a href="https://andrewbaker.ninja" target="_blank" rel="noopener">Andrew Baker</a> &middot; Group CIO, Capitec Bank</div>
+  </div>
+  <div class="footer-links">
+    <a href="https://github.com/andrewbakercloudscale/cloudtorepo" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/andrewbakercloudscale/cloudtorepo/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+    <a href="https://andrewbaker.ninja/2026/03/21/reverse-engineering-your-aws-estate-into-terraform-using-cloudtorepo-org/" target="_blank" rel="noopener">Blog post</a>
+    <a href="https://andrewbaker.ninja" target="_blank" rel="noopener">andrewbaker.ninja</a>
+    <a href="https://pi2s3.com" target="_blank" rel="noopener">pi2s3.com</a>
+  </div>
+</footer>
+
+<script>
+  (function() {
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) {
+      els.forEach(function(el) { el.classList.add('visible'); });
+      return;
+    }
+    var io = new IntersectionObserver(function(entries) {
+      entries.forEach(function(e) {
+        if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.08 });
+    els.forEach(function(el) { io.observe(el); });
+  })();
+</script>
+
+<script>
+  document.querySelectorAll('pre').forEach(function(pre) {
+    var wrap = document.createElement('div');
+    wrap.className = 'pre-wrap';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+
+    var btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = 'Copy';
+    wrap.appendChild(btn);
+
+    btn.addEventListener('click', function() {
+      navigator.clipboard.writeText(pre.innerText).then(function() {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(function() {
+          btn.textContent = 'Copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      });
+    });
+  });
+</script>
+</body>
+</html>

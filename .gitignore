@@ -22,3 +22,14 @@ cloudtorepo_e_small.*
 # Local development tooling (not part of the project)
 .claude-flow/
 CLAUDE.md
+
+# sg-tightener Python artefacts
+sg-tightener/__pycache__/
+sg-tightener/.venv/
+sg-tightener/*.pyc
+sg-tightener/approved.json
+sg-tightener/plan.json
+sg-tightener/manifest-*.json
+sg-tightener/sg_extend-manifest-*.json
+sg-tightener/report.xlsx
+sg-tightener/report.json

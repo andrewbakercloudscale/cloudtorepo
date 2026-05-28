@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>sg-tightener — CloudtoRepo</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="shortcut icon" href="favicon.svg" />
+  <meta name="description" content="Evidence-based AWS security group CIDR tightening. Replace broad RFC 1918 rules with the tightest covering blocks observed in VPC flow logs." />
+  <meta property="og:title" content="sg-tightener — evidence-based AWS security group tightening" />
+  <meta property="og:description" content="Replace assumption-based /16 trust with empirically-derived CIDR blocks observed in VPC flow logs." />
+  <meta property="og:image" content="https://cloudtorepo.com/cloudtorepo.png" />
+  <meta property="og:url" content="https://cloudtorepo.com/tightener.html" />
+  <meta property="og:type" content="website" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="index.html"><span>Cloud</span>toRepo</a>
+  <div class="nav-links">
+    <a href="index.html" class="hide-sm">← cloudtorepo.com</a>
+    <a class="btn-gh" href="https://github.com/andrewbakercloudscale/cloudtorepo" target="_blank" rel="noopener">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<!-- PAGE HERO -->
+<div class="page-hero">
+  <div class="page-hero-label">Security extension</div>
+  <h1>sg-tightener — evidence-based CIDR reduction</h1>
+  <p>
+    Most enterprise AWS estates did not move to the cloud; they extended into it.
+    Direct Connect lands, someone writes a <code>10.0.0.0/16</code> rule, and that
+    rule sits there through every reorg and audit, silently trusting 65,536 addresses
+    for years. <strong style="color:var(--text);">sg-tightener</strong> reads your VPC flow logs,
+    observes which IPs have actually connected, and replaces those broad rules with
+    the tightest covering CIDRs — without breaching AWS rule limits.
+  </p>
+</div>
+
+<!-- HEADLINE NUMBERS -->
+<hr class="divider" />
+<section id="impact">
+  <div class="section-label">What the reduction looks like</div>
+  <h2>From 196,608 trusted addresses to 74</h2>
+  <p class="section-intro">
+    Worked example from a typical three-year-old account with a Direct Connect path
+    from a corporate datacenter. Every replacement CIDR was empirically derived from
+    90 days of accepted connections in VPC flow logs.
+  </p>
+
+  <div style="margin-top:2rem;">
+    <div class="output-card reveal" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Before &rarr; after</h3>
+<pre><span class="cm"># Before                                                  After</span>
+<span class="kw">10.0.0.0/16</span>  on tcp/443     (65,536 trusted)  &rarr;  <span class="str">10.0.10.0/27, 10.0.20.10/31</span>     (34 trusted)
+<span class="kw">10.4.0.0/16</span>  on tcp/5432    (65,536 trusted)  &rarr;  <span class="str">10.4.8.0/29</span>                     (8 trusted)
+<span class="kw">10.8.0.0/16</span>  on tcp/8443    (65,536 trusted)  &rarr;  <span class="str">10.8.2.0/28, 10.8.16.0/28</span>      (32 trusted)
+<span class="cm">--------------------------------------------------------------------</span>
+Total trusted address space:    <span class="kw">196,608</span>  &rarr;  <span class="str">74</span>
+Lateral-movement surface area reduction:  <span class="str">99.96%</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- THE TOOLS -->
+<hr class="divider" />
+<section id="tools">
+  <div class="section-label">Tools in the suite</div>
+  <h2>Four scripts, one purpose</h2>
+  <p class="section-intro">
+    Each tool covers a single responsibility. They share an approved-IPs file
+    as the source of truth, so the same observed evidence flows through analyse,
+    plan, apply, diagnose, and revert.
+  </p>
+
+  <div class="service-grid">
+    <div class="service-card reveal">
+      <h3>sg_tightener.py</h3>
+      <div class="tags">
+        <span class="tag">analyse</span><span class="tag">plan</span><span class="tag">apply</span><span class="tag">revert</span>
+      </div>
+      <p style="font-size:0.8rem;color:var(--muted);margin-top:0.5rem;">
+        Reads VPC flow logs (CloudWatch Logs or S3), builds a plan, applies it
+        atomically per group, and halts loudly with a revert command if anything
+        fails partway through.
+      </p>
+    </div>
+    <div class="service-card reveal">
+      <h3>sg_diagnose.py</h3>
+      <div class="tags">
+        <span class="tag">post-deploy</span><span class="tag">rejects</span><span class="tag">merge</span>
+      </div>
+      <p style="font-size:0.8rem;color:var(--muted);margin-top:0.5rem;">
+        Surfaces private source IPs being REJECTED and not covered by any current
+        rule. Lets you merge them into the approved list and re-apply in one loop.
+      </p>
+    </div>
+    <div class="service-card reveal">
+      <h3>sg_ou_report.py</h3>
+      <div class="tags">
+        <span class="tag">org-wide</span><span class="tag">SG + NACL</span><span class="tag">risk score</span>
+      </div>
+      <p style="font-size:0.8rem;color:var(--muted);margin-top:0.5rem;">
+        Walks the entire Organisation, assumes a cross-account role per account,
+        scans every region in parallel, and ranks accounts by severity-weighted
+        risk score. Exits non-zero on any CRITICAL — usable as a pipeline gate.
+      </p>
+    </div>
+    <div class="service-card reveal">
+      <h3>sg_extend.py</h3>
+      <div class="tags">
+        <span class="tag">break-glass</span><span class="tag">additive only</span><span class="tag">manifest</span>
+      </div>
+      <p style="font-size:0.8rem;color:var(--muted);margin-top:0.5rem;">
+        For DR failovers and live incidents. Adds ingress rules immediately,
+        never removes anything, writes a manifest so the next tightening cycle
+        folds the changes back into the evidence base.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- WORKFLOW -->
+<hr class="divider" />
+<section id="workflow">
+  <div class="section-label">How it runs</div>
+  <h2>Four commands, with safety nets</h2>
+  <p class="section-intro">
+    The flow is intentionally boring: read evidence, propose changes, apply with
+    halt-on-error, diagnose anything that breaks. Every step writes a JSON artefact
+    that the next step reads — no hidden state.
+  </p>
+  <div class="steps">
+    <div class="step reveal">
+      <div class="step-num">STEP 01</div>
+      <h3>Analyse</h3>
+      <p>Read 90+ days of flow logs from CloudWatch Logs or S3. Write a sorted, deduplicated list of accepted source IPs to <code>approved.json</code>.</p>
+    </div>
+    <div class="step reveal">
+      <div class="step-num">STEP 02</div>
+      <h3>Plan</h3>
+      <p>Collapse observed IPs into the smallest CIDR set within each security group's rule budget. Emit a signed <code>plan.json</code> showing every revoke and authorise.</p>
+    </div>
+    <div class="step reveal">
+      <div class="step-num">STEP 03</div>
+      <h3>Apply</h3>
+      <p>Revoke broad rules and authorise tight replacements per group. If any single group fails, halt immediately and print the revert command — no partial silent state.</p>
+    </div>
+    <div class="step reveal">
+      <div class="step-num">STEP 04</div>
+      <h3>Diagnose</h3>
+      <p>If anything legitimate gets caught, <code>sg_diagnose.py</code> scans REJECT entries, surfaces uncovered private sources, and merges them back into <code>approved.json</code>.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:2rem;">
+    <div class="output-card reveal" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Standard workflow</h3>
+<pre><span class="cm"># 1. Read 90 days of flow logs</span>
+python sg_tightener.py analyse \
+  <span class="flag">--region</span> us-east-1 \
+  <span class="flag">--log-group</span> /aws/vpc/flowlogs \
+  <span class="flag">--days</span> 90 \
+  <span class="flag">--out</span> approved.json
+
+<span class="cm"># 2. Build a plan (no AWS writes)</span>
+python sg_tightener.py plan \
+  <span class="flag">--region</span> us-east-1 \
+  <span class="flag">--approved</span> approved.json \
+  <span class="flag">--max-rules</span> 60 \
+  <span class="flag">--out</span> plan.json
+
+<span class="cm"># 3. Review plan.json, then apply</span>
+python sg_tightener.py apply <span class="flag">--plan</span> plan.json
+
+<span class="cm"># 4. If something legitimate is now being blocked</span>
+python sg_diagnose.py <span class="flag">--region</span> us-east-1 \
+  <span class="flag">--log-group</span> /aws/vpc/flowlogs <span class="flag">--hours</span> 24
+
+<span class="cm"># Worst case: full revert from the manifest written by apply</span>
+python sg_tightener.py revert <span class="flag">--manifest</span> manifest-20260528T120000Z.json</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ALGORITHM -->
+<hr class="divider" />
+<section id="algorithm">
+  <div class="section-label">The CIDR-collapsing algorithm</div>
+  <h2>Three layers — never more than 60 rules per group</h2>
+  <p class="section-intro">
+    AWS hard-caps a security group at 60 inbound rules by default. If 200 IPs
+    have connected, you can't write 200 /32s — and a /16 reintroduces the
+    permissiveness you're trying to remove. The algorithm finds the middle ground.
+  </p>
+
+  <div class="hard-grid">
+    <div class="hard-card reveal">
+      <h3>Layer 1 &middot; widest block per IP</h3>
+      <p>
+        For each observed IP, walk outward to the widest containing prefix where
+        the gap fraction — addresses in the block that were never observed —
+        stays within the configured tolerance (default 30%).
+      </p>
+      <p>
+        Densely-populated subnets collapse aggressively. Sparse outliers stay
+        as /32 host routes. Nothing widens past the IP's RFC 1918 home block.
+      </p>
+    </div>
+    <div class="hard-card reveal">
+      <h3>Layer 2 &middot; tolerance widening</h3>
+      <p>
+        If layer 1 produces more rules than the group's budget, widen the tolerance
+        in 5% steps up to 95%, recomputing each time. Every step is logged so the
+        operator can see exactly what trade-off was made.
+      </p>
+    </div>
+    <div class="hard-card reveal">
+      <h3>Layer 3 &middot; force-fit merge</h3>
+      <p>
+        If 95% tolerance is still over budget, merge the closest pair of blocks
+        whose union introduces the smallest amount of new untrusted space.
+        Merges never cross an RFC 1918 boundary — a 10/8 block is never fused
+        with a 172.16/12 block.
+      </p>
+      <p>
+        Force-fit prints a loud warning recommending an AWS Support quota increase.
+      </p>
+    </div>
+    <div class="hard-card reveal">
+      <h3>Per-group rule budget</h3>
+      <p>
+        The budget for replacement rules is computed from the current state of
+        each group, not the global limit. If a group has 25 rules being left
+        alone (SG references, public 0.0.0.0/0, already-tight CIDRs), the
+        budget for replacements is 60 &minus; 25 &minus; (broad rules removed).
+      </p>
+      <p>
+        Prevents the failure mode where apply succeeds in revoking but fails
+        in authorising because the destination can't hold the new rules.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- WHAT IT TOUCHES -->
+<hr class="divider" />
+<section id="scope">
+  <div class="section-label">Scope</div>
+  <h2>What the tool will and will not touch</h2>
+  <p class="section-intro">
+    Eligibility uses <strong style="color:var(--text);">strict subset</strong> semantics
+    — not overlap — so overlapping non-private ranges like <code>192.0.0.0/4</code>
+    are correctly excluded. Rules at <code>/24</code> or tighter are not modified.
+  </p>
+
+  <div class="service-grid">
+    <div class="service-card reveal">
+      <h3>Tightened</h3>
+      <div class="tags">
+        <span class="tag">10.0.0.0/8 subsets</span>
+        <span class="tag">172.16.0.0/12 subsets</span>
+        <span class="tag">192.168.0.0/16 subsets</span>
+        <span class="tag">prefix &lt; /24</span>
+      </div>
+    </div>
+    <div class="service-card reveal">
+      <h3>Left untouched</h3>
+      <div class="tags">
+        <span class="tag">0.0.0.0/0</span>
+        <span class="tag">SG references</span>
+        <span class="tag">IPv6</span>
+        <span class="tag">/24 or tighter</span>
+        <span class="tag">non-private overlaps</span>
+      </div>
+    </div>
+    <div class="service-card reveal">
+      <h3>Reported, not changed</h3>
+      <div class="tags">
+        <span class="tag">Network ACLs</span>
+      </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">
+        NACLs are scanned and labelled in the OU report. Automated NACL
+        tightening is a planned phase two — stateless, subnet-scoped, and
+        a 20-rule limit need separate care.
+      </p>
+    </div>
+    <div class="service-card reveal">
+      <h3>Out of scope</h3>
+      <div class="tags">
+        <span class="tag">Egress rules</span>
+        <span class="tag">Public exposure audit</span>
+      </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">
+        sg-tightener does not evaluate whether services should be reachable
+        at all — only whether the source CIDR on existing private rules is
+        broader than the evidence supports.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- OPERATIONAL CARE -->
+<hr class="divider" />
+<section id="operations">
+  <div class="section-label">Operational care</div>
+  <h2>Absence of evidence isn't evidence of absence</h2>
+  <p class="section-intro">
+    The default 90-day window is long enough to catch most regular traffic
+    and not long enough to catch everything. Categories of traffic most
+    likely to be missed are the ones that matter most in a crisis — and the
+    tool is built around that risk, not in spite of it.
+  </p>
+  <div class="hard-grid">
+    <div class="hard-card reveal">
+      <h3>Window is configurable</h3>
+      <p>
+        Extend with <code>--days 180</code> or longer for accounts where you
+        know seasonal or infrequent traffic patterns exist — quarterly DR
+        tests, month-end batches, blue-green failovers where the dormant
+        environment was inactive during analysis.
+      </p>
+    </div>
+    <div class="hard-card reveal">
+      <h3>Halt-on-failure apply</h3>
+      <p>
+        If any single security group fails to update cleanly, apply halts
+        immediately and prints the revert command. Partial silent state is
+        impossible. Every apply writes a timestamped manifest of every
+        change so revert can be one command.
+      </p>
+    </div>
+    <div class="hard-card reveal">
+      <h3>Stale-plan detection</h3>
+      <p>
+        Plans are signed with a SHA-256 hash of the security group snapshot
+        they were built from. If anyone touches a relevant rule between plan
+        and apply, apply refuses to run.
+      </p>
+    </div>
+    <div class="hard-card reveal">
+      <h3>Break-glass extension</h3>
+      <p>
+        <code>sg_extend.py</code> exists for the cases the standard loop can't
+        cover — DR failovers, supplier IP cutovers, on-call moments where
+        connectivity must come back in minutes. Strictly additive, manifest-logged,
+        and folded back into the evidence base on the next cycle.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- TESTS -->
+<hr class="divider" />
+<section id="tests">
+  <div class="section-label">Quality</div>
+  <h2>44 regression tests, no AWS credentials needed</h2>
+  <p class="section-intro">
+    The CIDR-collapsing algorithm has enough edge cases that a regression
+    suite is essential before any change. Every algorithmic invariant, parser,
+    and validation rule is covered.
+  </p>
+  <div class="hard-grid">
+    <div class="hard-card reveal" style="text-align:center;">
+      <div style="font-size:2rem;font-weight:800;color:var(--accent);margin-bottom:0.4rem;">44</div>
+      <div style="font-size:0.85rem;color:var(--muted);">Python unittest cases</div>
+    </div>
+    <div class="hard-card reveal" style="text-align:center;">
+      <div style="font-size:2rem;font-weight:800;color:var(--accent2);margin-bottom:0.4rem;">7</div>
+      <div style="font-size:0.85rem;color:var(--muted);">test classes</div>
+      <div style="font-size:0.8rem;color:var(--muted);margin-top:0.25rem;opacity:0.7;">collapse &middot; eligibility &middot; ports &middot; partition &middot; risk score &middot; classify &middot; extend</div>
+    </div>
+    <div class="hard-card reveal" style="text-align:center;">
+      <div style="font-size:2rem;font-weight:800;color:#d4f700;margin-bottom:0.4rem;">0</div>
+      <div style="font-size:0.85rem;color:var(--muted);">AWS calls in tests</div>
+      <div style="font-size:0.8rem;color:var(--muted);margin-top:0.25rem;opacity:0.7;">pure-Python boundaries only</div>
+    </div>
+  </div>
+
+  <div style="margin-top:2rem;">
+    <div class="output-card reveal" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Run the suite</h3>
+<pre>cd sg-tightener/
+./install.sh
+source .venv/bin/activate
+python sg_tightener_test.py
+
+<span class="out">Ran 44 tests in 0.020s
+
+OK</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- WHY -->
+<hr class="divider" />
+<section id="why">
+  <div class="section-label">The broader point</div>
+  <h2>Trust should be earned, not inherited</h2>
+  <p class="section-intro" style="max-width:100%;">
+    Most organisations spend considerable effort building security controls at the
+    perimeter: WAFs, DDoS protection, identity federation. What receives far less
+    attention is the internal trust model once traffic is past the perimeter.
+    The implicit assumption in most hybrid cloud estates is that the corporate
+    network is trusted, and that assumption is encoded directly into security
+    group rules as broad RFC 1918 CIDR blocks that nobody has revisited since
+    they were written.
+  </p>
+  <p class="section-intro" style="max-width:100%;">
+    Modern threat models assume the corporate network is already compromised,
+    or will be. Ransomware operators routinely move laterally across flat
+    trusted networks before triggering payloads. Compromised build agents
+    are a standard initial-access vector precisely because they sit in
+    trusted ranges with broad permissions into production. The cloud did
+    not eliminate flat networks; it gave many organisations the tools to
+    build more sophisticated ones while quietly replicating the same trust
+    assumptions they always made.
+  </p>
+  <p class="section-intro" style="max-width:100%;">
+    <strong style="color:var(--text);">sg-tightener</strong> exists because
+    trust should be earned through observed behaviour, not inherited from a
+    datacenter subnet designed fifteen years ago.
+  </p>
+</section>
+
+<!-- FOOTER -->
+<hr class="divider" />
+<footer>
+  <div>
+    <div class="footer-brand"><span>Cloud</span>toRepo</div>
+    <div class="footer-meta" style="margin-top:0.4rem;">Built by <a href="https://andrewbaker.ninja" target="_blank" rel="noopener">Andrew Baker</a> &middot; Group CIO, Capitec Bank</div>
+  </div>
+  <div class="footer-links">
+    <a href="https://github.com/andrewbakercloudscale/cloudtorepo" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/andrewbakercloudscale/cloudtorepo/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+    <a href="https://andrewbaker.ninja/2026/03/21/reverse-engineering-your-aws-estate-into-terraform-using-cloudtorepo-org/" target="_blank" rel="noopener">Blog post</a>
+    <a href="https://andrewbaker.ninja" target="_blank" rel="noopener">andrewbaker.ninja</a>
+    <a href="https://pi2s3.com" target="_blank" rel="noopener">pi2s3.com</a>
+  </div>
+</footer>
+
+<script>
+  (function() {
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) {
+      els.forEach(function(el) { el.classList.add('visible'); });
+      return;
+    }
+    var io = new IntersectionObserver(function(entries) {
+      entries.forEach(function(e) {
+        if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.08 });
+    els.forEach(function(el) { io.observe(el); });
+  })();
+</script>
+
+<script>
+  document.querySelectorAll('pre').forEach(function(pre) {
+    var wrap = document.createElement('div');
+    wrap.className = 'pre-wrap';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+
+    var btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = 'Copy';
+    wrap.appendChild(btn);
+
+    btn.addEventListener('click', function() {
+      navigator.clipboard.writeText(pre.innerText).then(function() {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(function() {
+          btn.textContent = 'Copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      });
+    });
+  });
+</script>
+</body>
+</html>

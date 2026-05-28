@@ -38,7 +38,15 @@ function main() {
     --profile "${PROFILE}" \
     --exclude "*" \
     --include "*.html" \
-    --include "*.css"
+    --include "*.css" \
+    --exclude "tests/*" \
+    --exclude "sg-tightener/*" \
+    --exclude "tf-live-test/*" \
+    --exclude "tf-live-test-new/*" \
+    --exclude "scripts/*" \
+    --exclude "lib/*" \
+    --exclude "examples/*" \
+    --exclude "node_modules/*"
 
   echo "[INFO]  Syncing static assets to s3://${BUCKET}/ ..."
   aws s3 sync "${SCRIPT_DIR}" "s3://${BUCKET}/" \
@@ -50,7 +58,16 @@ function main() {
     --include "*.svg" \
     --include "*.webp" \
     --include "*.ico" \
-    --include "*.txt"
+    --include "ads.txt" \
+    --include "robots.txt" \
+    --exclude "tests/*" \
+    --exclude "sg-tightener/*" \
+    --exclude "tf-live-test/*" \
+    --exclude "tf-live-test-new/*" \
+    --exclude "scripts/*" \
+    --exclude "lib/*" \
+    --exclude "examples/*" \
+    --exclude "node_modules/*"
 
   echo "[INFO]  Creating CloudFront invalidation for distribution ${DISTRIBUTION_ID} ..."
   INVALIDATION_ID=$(aws cloudfront create-invalidation \

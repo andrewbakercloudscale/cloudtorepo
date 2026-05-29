@@ -341,7 +341,7 @@ h2 {
   margin-bottom: 0.75rem;
 }
 
-.step h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; color: #d4f700; }
+.step h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text); letter-spacing: -0.01em; }
 .step p { font-size: 0.9rem; color: var(--muted); }
 
 /* SERVICE GRID */
@@ -434,8 +434,9 @@ h2 {
 }
 
 .output-card h3 {
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   font-weight: 600;
+  letter-spacing: -0.01em;
   margin-bottom: 0.4rem;
 }
 
@@ -479,9 +480,10 @@ h2 {
 }
 
 .hard-card h3 {
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 600;
-  color: #d4f700;
+  color: var(--text);
+  letter-spacing: -0.01em;
   margin-bottom: 0.75rem;
 }
 
@@ -663,10 +665,33 @@ footer {
 
 /* PAGE HERO (non-home pages) */
 .page-hero {
-  padding: 7rem 2rem 3rem;
+  position: relative;
+  isolation: isolate;
+  padding: 8rem 2rem 3.5rem;
   max-width: 1100px;
   margin: 0 auto;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(124, 106, 247, 0.25);
+  box-shadow: 0 1px 0 rgba(124, 106, 247, 0.12);
+}
+
+.page-hero::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: -160px; left: -140px;
+  width: 760px; height: 520px;
+  background: radial-gradient(ellipse at center, rgba(124, 106, 247, 0.20) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.page-hero::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: -40px; right: -160px;
+  width: 520px; height: 360px;
+  background: radial-gradient(ellipse at center, rgba(94, 234, 212, 0.10) 0%, transparent 70%);
+  pointer-events: none;
 }
 
 .page-hero-label {

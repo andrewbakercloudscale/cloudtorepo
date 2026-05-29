@@ -24,7 +24,7 @@ untouched.
 | `sg_tightener.py` | Main tool — modes `analyse`, `plan`, `apply`, `revert` |
 | `sg_diagnose.py` | Post-deploy diagnostic — find IPs being REJECTED and not covered |
 | `sg_ou_report.py` | Organisation-wide permissive-rule risk report (SG + NACL) |
-| `sg_extend.py` | Strictly-additive break-glass extender for live incidents |
+| `sg_extend.py` | Flow-log-driven, strictly-additive break-glass extender for live incidents |
 | `sg_tightener_test.py` | Regression suite — 44 tests, no AWS credentials required |
 | `iam-policy.json` | Minimum IAM permissions |
 | `install.sh` | Create the Python venv |
@@ -79,20 +79,55 @@ python sg_tightener.py revert --manifest manifest-<ts>.json
 ## Break-glass: sg_extend.py
 
 When a DR failover, supplier IP cutover, or any other unanticipated event
-brings traffic from an IP range nothing has seen before, the standard
-plan/apply loop is too slow. `sg_extend.py` adds rules immediately and
-strictly additively — nothing is ever removed.
+starts getting traffic blocked, the standard analyse/plan/apply loop is too
+slow. `sg_extend.py` reads the VPC flow logs over a recent window (default:
+the last 24 hours), finds the source IPs whose traffic was **REJECTED**, and
+adds them to the named security groups immediately. It is strictly
+additive — nothing is ever removed.
 
 ```bash
+# CloudWatch Logs source
 python sg_extend.py \
+  --region us-east-1 \
   --groups sg-aaaa,sg-bbbb \
-  --cidrs 10.1.2.0/24 \
+  --log-group /aws/vpc/flowlogs \
+  --hours 24 \
+  --tolerance 0.5 \
   --ports 443,5432 \
   --description "DR failover 2026-05-28"
+
+# S3 source
+python sg_extend.py \
+  --region us-east-1 \
+  --groups sg-aaaa,sg-bbbb \
+  --s3-bucket my-flow-logs --s3-prefix AWSLogs/123456789012/vpcflowlogs \
+  --hours 24
 ```
 
-The script writes a timestamped manifest of exactly what it added so the
-next tightening cycle can fold the changes back into the evidence base.
+Behaviour and safety:
+
+* The rejected source IPs are **grouped into the smallest CIDR blocks
+  allowed by `--tolerance`** — the fraction of unused (never-observed)
+  addresses tolerated inside a grouping block. `--tolerance 0.5` lets a CIDR
+  cover a set of sources even when half of that block's addresses were never
+  seen. Raising the tolerance packs more sources into fewer rules, which is
+  how you stay under the per-group rule limit during a noisy incident.
+  Grouping is per protocol/port, so a rule only opens the port that was
+  actually rejected.
+* **Private by default.** Only RFC 1918 source IPs are added; internet
+  REJECT noise is ignored unless `--include-public` is passed. (Public IPs,
+  when included, stay as `/32` host routes — they are never widened.)
+* `--ports` restricts the rebuild to specific destination ports/ranges. Use
+  it to scope a break-glass to just the service that is down.
+* A per-group rule budget (`--max-rules`, default 60) is enforced. A group
+  that would overflow is **skipped** with a warning — raise `--tolerance`,
+  run `sg_compact` to reclaim budget, or raise the SG quota, then re-run.
+* CIDRs already covered by an existing rule on the same protocol/port are
+  dropped so the budget is honest and duplicate errors are avoided.
+* It writes a timestamped manifest of exactly what it added so the next
+  tightening cycle can fold the changes back into the evidence base.
+
+Requires either `--log-group` or `--s3-bucket`.
 
 ---
 

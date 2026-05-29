@@ -28,7 +28,18 @@ from sg_ou_report import (
     compute_risk_score,
     classify_sg_rule,
 )
-from sg_extend import parse_cidr, parse_port_spec, parse_group_id
+from sg_extend import (
+    parse_cidr,
+    parse_port_spec,
+    parse_group_id,
+    proto_name,
+    filter_flows,
+    build_perms,
+    perm_rule_count,
+    _rule_count,
+    _existing_nets_for,
+    filter_existing,
+)
 
 
 class TestCollapseIpsToCidrs(unittest.TestCase):
@@ -271,6 +282,124 @@ class TestSgExtendInputValidation(unittest.TestCase):
             parse_group_id("not-a-group")
         with self.assertRaises(ValueError):
             parse_group_id("sg-XYZ")
+
+
+class TestSgExtendDiscovery(unittest.TestCase):
+    """Flow-log-driven break-glass logic — all pure, no AWS required."""
+
+    def test_proto_name_known(self):
+        self.assertEqual(proto_name("6"), "tcp")
+        self.assertEqual(proto_name("17"), "udp")
+
+    def test_proto_name_unknown_or_garbage(self):
+        self.assertIsNone(proto_name("1"))    # icmp — no port-scoped rule
+        self.assertIsNone(proto_name("47"))   # gre
+        self.assertIsNone(proto_name(""))
+        self.assertIsNone(proto_name(None))
+
+    def test_filter_keeps_private_drops_public(self):
+        flows = {
+            ("10.0.0.5", "tcp", 443),
+            ("192.168.1.7", "tcp", 5432),
+            ("8.8.8.8", "tcp", 443),       # public — dropped by default
+        }
+        out = filter_flows(flows, include_public=False, port_specs=None)
+        self.assertIn(("10.0.0.5", "tcp", 443), out)
+        self.assertIn(("192.168.1.7", "tcp", 5432), out)
+        self.assertNotIn(("8.8.8.8", "tcp", 443), out)
+
+    def test_filter_include_public(self):
+        flows = {("8.8.8.8", "tcp", 443)}
+        self.assertEqual(
+            filter_flows(flows, include_public=True, port_specs=None),
+            {("8.8.8.8", "tcp", 443)},
+        )
+
+    def test_filter_drops_ipv6_and_garbage(self):
+        flows = {("::1", "tcp", 443), ("not-an-ip", "tcp", 443)}
+        self.assertEqual(filter_flows(flows, include_public=True, port_specs=None), set())
+
+    def test_filter_port_specs(self):
+        flows = {
+            ("10.0.0.1", "tcp", 443),
+            ("10.0.0.2", "tcp", 22),
+            ("10.0.0.3", "tcp", 8050),
+        }
+        out = filter_flows(flows, include_public=False, port_specs=[(443, 443), (8000, 8100)])
+        self.assertEqual(
+            out, {("10.0.0.1", "tcp", 443), ("10.0.0.3", "tcp", 8050)}
+        )
+
+    def test_build_perms_groups_by_proto_port(self):
+        flows = {
+            ("10.0.0.1", "tcp", 443),
+            ("10.0.0.2", "tcp", 443),
+            ("10.0.0.1", "tcp", 5432),
+        }
+        perms = build_perms(flows, "test", tolerance=0.0, max_rules=60)
+        # One permission per (proto, port).
+        self.assertEqual(len({(p["FromPort"], p["ToPort"]) for p in perms}), 2)
+        # Every discovered flow is covered by the resulting CIDRs.
+        for src, _proto, port in flows:
+            perm = next(p for p in perms if p["FromPort"] == port)
+            nets = [ipaddress.ip_network(ip["CidrIp"]) for ip in perm["IpRanges"]]
+            self.assertTrue(any(ipaddress.ip_address(src) in n for n in nets))
+
+    def test_build_perms_tolerance_zero_keeps_host_routes(self):
+        flows = {("10.0.0.1", "tcp", 443), ("10.0.5.9", "tcp", 443)}
+        perms = build_perms(flows, "t", tolerance=0.0, max_rules=60)
+        cidrs = {ip["CidrIp"] for p in perms for ip in p["IpRanges"]}
+        self.assertEqual(cidrs, {"10.0.0.1/32", "10.0.5.9/32"})
+
+    def test_build_perms_tolerance_collapses_dense_block(self):
+        # A dense /24 worth of sources should collapse to far fewer rules
+        # once we tolerate unused addresses.
+        flows = {(f"10.0.0.{i}", "tcp", 443) for i in range(1, 60)}
+        perms = build_perms(flows, "t", tolerance=0.5, max_rules=60)
+        self.assertLess(perm_rule_count(perms), len(flows))
+        nets = [ipaddress.ip_network(ip["CidrIp"]) for p in perms for ip in p["IpRanges"]]
+        for src, _proto, _port in flows:
+            self.assertTrue(any(ipaddress.ip_address(src) in n for n in nets))
+
+    def test_rule_count_counts_all_rule_kinds(self):
+        sg = {"IpPermissions": [{
+            "IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+            "IpRanges": [{"CidrIp": "10.0.0.0/16"}, {"CidrIp": "10.1.0.0/16"}],
+            "Ipv6Ranges": [{"CidrIpv6": "::/0"}],
+            "UserIdGroupPairs": [{"GroupId": "sg-1"}],
+        }]}
+        self.assertEqual(_rule_count(sg), 4)
+
+    def test_existing_nets_for_matches_proto_port_and_all(self):
+        sg = {"IpPermissions": [
+            {"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+             "IpRanges": [{"CidrIp": "10.0.0.0/16"}]},
+            {"IpProtocol": "-1", "FromPort": None, "ToPort": None,
+             "IpRanges": [{"CidrIp": "192.168.0.0/16"}]},
+            {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22,
+             "IpRanges": [{"CidrIp": "172.16.0.0/12"}]},
+        ]}
+        nets = _existing_nets_for(sg, "tcp", 443)
+        strs = {str(n) for n in nets}
+        self.assertIn("10.0.0.0/16", strs)     # exact proto/port
+        self.assertIn("192.168.0.0/16", strs)  # protocol -1 covers all ports
+        self.assertNotIn("172.16.0.0/12", strs)  # different port
+
+    def test_filter_existing_drops_covered_candidates(self):
+        sg = {"IpPermissions": [{
+            "IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+            "IpRanges": [{"CidrIp": "10.0.0.0/16"}],
+        }]}
+        perms = [{
+            "IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+            "IpRanges": [
+                {"CidrIp": "10.0.5.0/24"},   # covered by 10.0.0.0/16 -> dropped
+                {"CidrIp": "10.9.0.0/24"},   # not covered -> kept
+            ],
+        }]
+        out = filter_existing(perms, sg)
+        kept = {ip["CidrIp"] for p in out for ip in p["IpRanges"]}
+        self.assertEqual(kept, {"10.9.0.0/24"})
 
 
 class TestStrictRfc1918(unittest.TestCase):

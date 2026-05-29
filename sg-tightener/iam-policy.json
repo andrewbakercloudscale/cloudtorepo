@@ -7,6 +7,7 @@
       "Action": [
         "ec2:DescribeSecurityGroups",
         "ec2:DescribeNetworkAcls",
+        "ec2:DescribeNetworkInterfaces",
         "ec2:DescribeVpcs",
         "ec2:DescribeRegions",
         "logs:DescribeLogGroups",

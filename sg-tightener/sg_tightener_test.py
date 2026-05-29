@@ -41,6 +41,11 @@ from sg_extend import (
     _rule_count,
     _existing_nets_for,
     filter_existing,
+    classify_aws_service,
+    split_aws_service_flows,
+    build_aws_service_perms,
+    partition_flows_by_group,
+    _merge_perms,
 )
 from sg_compact import (
     compactable_net,
@@ -409,6 +414,168 @@ class TestSgExtendDiscovery(unittest.TestCase):
         out = filter_existing(perms, sg)
         kept = {ip["CidrIp"] for p in out for ip in p["IpRanges"]}
         self.assertEqual(kept, {"10.9.0.0/24"})
+
+
+class TestAwsServiceClassification(unittest.TestCase):
+    """AWS service summarisation must collapse Hyperplane / managed-ENI
+    traffic into the published service range rather than enumerating /32s."""
+
+    SAMPLE_RANGES = [
+        {"ip_prefix": "3.5.140.0/22", "region": "ap-northeast-2",
+         "service": "EC2"},
+        {"ip_prefix": "52.94.5.0/24", "region": "us-east-1",
+         "service": "ROUTE53_HEALTHCHECKS"},
+        # AMAZON entry overlaps with the EC2 one above; classifier must
+        # prefer the specific service entry, not the AMAZON catch-all.
+        {"ip_prefix": "3.0.0.0/8", "region": "GLOBAL", "service": "AMAZON"},
+        {"ip_prefix": "10.0.0.0/8", "region": "GLOBAL", "service": "AMAZON"},
+    ]
+
+    def test_specific_service_wins_over_amazon(self):
+        cls = classify_aws_service("3.5.140.42", self.SAMPLE_RANGES)
+        self.assertIsNotNone(cls)
+        service, _region, prefix = cls
+        self.assertEqual(service, "EC2")
+        self.assertEqual(prefix, "3.5.140.0/22")
+
+    def test_amazon_only_returns_none(self):
+        # 4.0.0.0/8 isn't covered by AMAZON in our fixture; explicit
+        # check that AMAZON is blocklisted even when it would match.
+        cls = classify_aws_service("3.99.99.99", self.SAMPLE_RANGES)
+        # 3.99.99.99 is in AMAZON 3.0.0.0/8 but not EC2 3.5.140.0/22 →
+        # AMAZON is blocklisted so we get None.
+        self.assertIsNone(cls)
+
+    def test_private_ip_returns_none(self):
+        # An RFC 1918 IP appearing in the AMAZON catch-all (a real entry
+        # in the actual file) must still return None because AMAZON is
+        # always rejected as too broad to be a trust source.
+        cls = classify_aws_service("10.0.0.5", self.SAMPLE_RANGES)
+        self.assertIsNone(cls)
+
+    def test_unmatched_ip_returns_none(self):
+        cls = classify_aws_service("8.8.8.8", self.SAMPLE_RANGES)
+        self.assertIsNone(cls)
+
+    def test_garbage_input_returns_none(self):
+        self.assertIsNone(classify_aws_service("not-an-ip", self.SAMPLE_RANGES))
+        self.assertIsNone(classify_aws_service("", self.SAMPLE_RANGES))
+        self.assertIsNone(classify_aws_service(None, self.SAMPLE_RANGES))
+
+
+class TestAwsServiceSummarisation(unittest.TestCase):
+    SAMPLE_RANGES = TestAwsServiceClassification.SAMPLE_RANGES
+
+    def test_split_separates_aws_and_regular(self):
+        flows = {
+            ("10.0.0.5", "tcp", 5432),       # private — not an AWS public IP
+            ("3.5.140.42", "tcp", 443),      # AWS EC2 range
+            ("3.5.141.7", "tcp", 443),       # same AWS EC2 range
+            ("8.8.8.8", "tcp", 443),         # public, not AWS
+        }
+        regular, summaries = split_aws_service_flows(flows, self.SAMPLE_RANGES)
+        # The two EC2 flows must collapse into a single summary entry.
+        self.assertEqual(len(summaries), 1)
+        ((prefix, proto, port), (service, _region)), = summaries.items()
+        self.assertEqual(prefix, "3.5.140.0/22")
+        self.assertEqual(proto, "tcp")
+        self.assertEqual(port, 443)
+        self.assertEqual(service, "EC2")
+        # Regular flows keep the private and non-AWS-public sources.
+        self.assertIn(("10.0.0.5", "tcp", 5432), regular)
+        self.assertIn(("8.8.8.8", "tcp", 443), regular)
+        # And drop the AWS-classified ones.
+        self.assertNotIn(("3.5.140.42", "tcp", 443), regular)
+        self.assertNotIn(("3.5.141.7", "tcp", 443), regular)
+
+    def test_build_aws_service_perms_one_rule_per_prefix(self):
+        summaries = {
+            ("3.5.140.0/22", "tcp", 443): ("EC2", "ap-northeast-2"),
+            ("52.94.5.0/24", "tcp", 443): ("ROUTE53_HEALTHCHECKS", "us-east-1"),
+            ("52.94.5.0/24", "tcp", 80):  ("ROUTE53_HEALTHCHECKS", "us-east-1"),
+        }
+        perms = build_aws_service_perms(summaries, "test")
+        # Two distinct (proto, port) pairs → two IpPermissions.
+        self.assertEqual(len(perms), 2)
+        # tcp/443 perm carries both prefixes.
+        p443 = next(p for p in perms if p["FromPort"] == 443)
+        cidrs = {r["CidrIp"] for r in p443["IpRanges"]}
+        self.assertEqual(cidrs, {"3.5.140.0/22", "52.94.5.0/24"})
+        # Description tags the service so the rule is self-documenting.
+        descriptions = " ".join(r["Description"] for r in p443["IpRanges"])
+        self.assertIn("EC2", descriptions)
+        self.assertIn("ROUTE53_HEALTHCHECKS", descriptions)
+
+
+class TestPartitionFlowsByGroup(unittest.TestCase):
+    """Auto-group-discovery: flows must end up attributed to every SG
+    attached to every destination ENI that observed them."""
+
+    def test_single_dst_single_group(self):
+        flows = {("10.0.0.5", "tcp", 443)}
+        dst_map = {("10.0.0.5", "tcp", 443): {"10.1.1.1"}}
+        dst_to_groups = {"10.1.1.1": {"sg-aaa"}}
+        out = partition_flows_by_group(flows, dst_map, dst_to_groups)
+        self.assertEqual(out, {"sg-aaa": {("10.0.0.5", "tcp", 443)}})
+
+    def test_eni_with_multiple_groups(self):
+        flows = {("10.0.0.5", "tcp", 443)}
+        dst_map = {("10.0.0.5", "tcp", 443): {"10.1.1.1"}}
+        dst_to_groups = {"10.1.1.1": {"sg-aaa", "sg-bbb"}}
+        out = partition_flows_by_group(flows, dst_map, dst_to_groups)
+        # Both attached SGs are candidates per AWS' permissive evaluation.
+        self.assertEqual(set(out.keys()), {"sg-aaa", "sg-bbb"})
+
+    def test_multiple_dsts_share_a_group(self):
+        flows = {("10.0.0.5", "tcp", 443), ("10.0.0.6", "tcp", 443)}
+        dst_map = {
+            ("10.0.0.5", "tcp", 443): {"10.1.1.1"},
+            ("10.0.0.6", "tcp", 443): {"10.1.1.2"},
+        }
+        dst_to_groups = {"10.1.1.1": {"sg-aaa"}, "10.1.1.2": {"sg-aaa"}}
+        out = partition_flows_by_group(flows, dst_map, dst_to_groups)
+        self.assertEqual(out["sg-aaa"], flows)
+
+    def test_unmapped_dst_drops_flow(self):
+        # A flow whose dst couldn't be resolved (no ENI lookup match) is
+        # silently dropped — auto mode never invents groups.
+        flows = {("10.0.0.5", "tcp", 443)}
+        dst_map = {("10.0.0.5", "tcp", 443): {"10.1.1.1"}}
+        out = partition_flows_by_group(flows, dst_map, {})
+        self.assertEqual(out, {})
+
+
+class TestMergePerms(unittest.TestCase):
+    """When regular CIDR perms and AWS-service-summary perms target the
+    same protocol/port, they must merge into a single IpPermissions
+    entry rather than producing duplicates."""
+
+    def test_merges_same_proto_port(self):
+        a = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+              "IpRanges": [{"CidrIp": "10.0.0.0/24"}]}]
+        b = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+              "IpRanges": [{"CidrIp": "3.5.140.0/22"}]}]
+        out = _merge_perms(a, b)
+        self.assertEqual(len(out), 1)
+        cidrs = {r["CidrIp"] for r in out[0]["IpRanges"]}
+        self.assertEqual(cidrs, {"10.0.0.0/24", "3.5.140.0/22"})
+
+    def test_different_ports_stay_separate(self):
+        a = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+              "IpRanges": [{"CidrIp": "10.0.0.0/24"}]}]
+        b = [{"IpProtocol": "tcp", "FromPort": 5432, "ToPort": 5432,
+              "IpRanges": [{"CidrIp": "10.0.0.0/24"}]}]
+        out = _merge_perms(a, b)
+        self.assertEqual(len(out), 2)
+
+    def test_dedupes_identical_cidrs(self):
+        a = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+              "IpRanges": [{"CidrIp": "10.0.0.0/24"}]}]
+        b = [{"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+              "IpRanges": [{"CidrIp": "10.0.0.0/24"}]}]
+        out = _merge_perms(a, b)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(len(out[0]["IpRanges"]), 1)
 
 
 class TestSgCompact(unittest.TestCase):

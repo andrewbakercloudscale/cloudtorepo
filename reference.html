@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Reference — CloudtoRepo</title>
+  <title>Reference | CloudtoRepo</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="stylesheet" href="style.css" />
@@ -158,13 +158,13 @@ Removed (stale):          1</pre>
     <div class="step reveal">
       <div class="step-num">LIST</div>
       <h3>Discover supported services</h3>
-      <p>Run <code>./cloudtorepo.sh --services list</code> or <code>./drift.sh --services list</code> to print all supported service names — useful for scripting or building a custom <code>--services</code> argument.</p>
+      <p>Run <code>./cloudtorepo.sh --services list</code> or <code>./drift.sh --services list</code> to print all supported service names, useful for scripting or building a custom <code>--services</code> argument.</p>
     </div>
   </div>
 
   <div style="margin-top:2rem;display:flex;flex-direction:column;gap:1rem;">
     <div class="output-card reveal" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">reconcile.sh — with Resource Explorer</h3>
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">reconcile.sh: with Resource Explorer</h3>
 <pre><span class="cm"># full coverage check (requires Resource Explorer aggregator index)</span>
 ./reconcile.sh --output ./tf-output --index-region us-east-1
 
@@ -176,8 +176,8 @@ Potentially missed:                    46
 Coverage:                              94%</pre>
     </div>
     <div class="output-card reveal" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">reconcile.sh --local — no Resource Explorer required</h3>
-<pre><span class="cm"># local summary — no AWS API calls beyond listing the output directory</span>
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">reconcile.sh --local: no Resource Explorer required</h3>
+<pre><span class="cm"># local summary, no AWS API calls beyond listing the output directory</span>
 ./reconcile.sh --output ./tf-output --local
 
 Account / Region / Service        Import blocks
@@ -194,7 +194,7 @@ Total                                   103
 <span class="cm">  aws resource-explorer-2 create-index --type AGGREGATOR --region us-east-1</span></pre>
     </div>
     <div class="output-card reveal" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">--services list — discover all supported services</h3>
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">--services list: discover all supported services</h3>
 <pre><span class="cm"># print every supported service name, one per line</span>
 ./cloudtorepo.sh --services list
 
@@ -233,13 +233,13 @@ emr
   <div class="section-label">Reporting</div>
   <h2>One-command Markdown reports</h2>
   <p class="section-intro">
-    <code>report.sh</code> reads any <code>cloudtorepo.sh</code> output directory and generates a clean Markdown document — service breakdown, import counts, and an optional drift section from a <code>drift.sh --report</code> file.
+    <code>report.sh</code> reads any <code>cloudtorepo.sh</code> output directory and generates a clean Markdown document: service breakdown, import counts, and an optional drift section from a <code>drift.sh --report</code> file.
   </p>
   <div class="steps">
     <div class="step reveal">
       <div class="step-num">MD</div>
       <h3>Markdown output</h3>
-      <p>Write to stdout or pass <code>--out report.md</code>. Paste it into a PR description, Confluence, or a GitHub wiki — it renders instantly.</p>
+      <p>Write to stdout or pass <code>--out report.md</code>. Paste it into a PR description, Confluence, or a GitHub wiki. It renders instantly.</p>
     </div>
     <div class="step reveal">
       <div class="step-num">DRIFT</div>
@@ -249,29 +249,29 @@ emr
     <div class="step reveal">
       <div class="step-num">CI</div>
       <h3>Commit it to git</h3>
-      <p>Run <code>report.sh</code> at the end of every nightly drift job and commit <code>report.md</code> to a <code>infra-reports</code> branch — instant audit trail with no extra tooling.</p>
+      <p>Run <code>report.sh</code> at the end of every nightly drift job and commit <code>report.md</code> to a <code>infra-reports</code> branch: instant audit trail with no extra tooling.</p>
     </div>
   </div>
 
   <div style="margin-top:2rem;">
     <div class="output-card reveal" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
       <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Usage</h3>
-<pre><span class="cm"># basic — prints to stdout</span>
+<pre><span class="cm"># basic: prints to stdout</span>
 ./report.sh --output ./tf-output
 
 <span class="cm"># with drift section, write to file</span>
 ./drift.sh --output ./tf-output --report ./drift.txt
 ./report.sh --output ./tf-output \
   --drift  ./drift.txt \
-  --title  <span class="str">"Production AWS Report — March 2026"</span> \
+  --title  <span class="str">"Production AWS Report, March 2026"</span> \
   --out    report.md</pre>
     </div>
   </div>
 
   <div style="margin-top:1.5rem;">
     <div class="output-card reveal" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
-      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Example report output — account 987267051295 / af-south-1</h3>
-<pre><span class="kw"># Production AWS Report — March 2026</span>
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Example report output: account 987267051295 / af-south-1</h3>
+<pre><span class="kw"># Production AWS Report, March 2026</span>
 
 <span class="cm">**Generated:** 2026-03-25T11:06:09Z</span>
 <span class="cm">**Output directory:** `./tf-output`</span>
@@ -410,14 +410,14 @@ Failed:                       1</pre>
   <h2>From import blocks to state in one command</h2>
   <p class="section-intro">
     After <code>run.sh</code> generates <code>generated.tf</code>, use <code>import.sh</code>
-    to actually call <code>terraform import</code> for every resource — skipping anything
+    to actually call <code>terraform import</code> for every resource, skipping anything
     already in state automatically.
   </p>
   <div class="steps">
     <div class="step reveal">
       <div class="step-num">SKIP</div>
       <h3>State-aware</h3>
-      <p>Runs <code>terraform state list</code> before each import. Resources already managed are silently skipped — safe to re-run as many times as needed.</p>
+      <p>Runs <code>terraform state list</code> before each import. Resources already managed are silently skipped. Safe to re-run as many times as needed.</p>
     </div>
     <div class="step reveal">
       <div class="step-num">×N</div>
@@ -434,7 +434,7 @@ Failed:                       1</pre>
   <div style="margin-top:2rem;">
     <div class="output-card reveal" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
       <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">import.sh usage</h3>
-<pre><span class="cm"># dry run — see what would be imported</span>
+<pre><span class="cm"># dry run: see what would be imported</span>
 ./import.sh --output ./tf-output --dry-run
 
 <span class="cm"># import everything (sequential)</span>

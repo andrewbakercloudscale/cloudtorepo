@@ -3,7 +3,9 @@
 
 Covers the CIDR collapsing algorithm, eligibility & port-merge logic,
 the partition detector and severity-weighted risk score in the OU
-report, and the input validation logic in sg_extend.
+report, the input validation and flow-log discovery/collapse logic in
+sg_extend, and the range-aware CIDR widening / rule compaction in
+sg_compact.
 
 Any fix to the algorithm or parsing logic must keep this suite passing.
 
@@ -39,6 +41,13 @@ from sg_extend import (
     _rule_count,
     _existing_nets_for,
     filter_existing,
+)
+from sg_compact import (
+    compactable_net,
+    count_group,
+    compact_nets,
+    analyse_group,
+    build_compact_plan,
 )
 
 
@@ -400,6 +409,127 @@ class TestSgExtendDiscovery(unittest.TestCase):
         out = filter_existing(perms, sg)
         kept = {ip["CidrIp"] for p in out for ip in p["IpRanges"]}
         self.assertEqual(kept, {"10.9.0.0/24"})
+
+
+class TestSgCompact(unittest.TestCase):
+    """CIDR widening / rule compaction — all pure, no AWS required."""
+
+    def _net(self, c):
+        return ipaddress.ip_network(c)
+
+    def assert_covers(self, originals, result):
+        res = [self._net(str(n)) for n in result]
+        for o in originals:
+            on = self._net(o)
+            self.assertTrue(
+                any(on.subnet_of(r) for r in res),
+                f"{o} not covered by {[str(r) for r in res]}",
+            )
+
+    def test_compactable_net_scope(self):
+        self.assertIsNotNone(compactable_net("10.0.0.0/24"))
+        self.assertIsNotNone(compactable_net("10.0.0.5/32"))   # narrow still eligible
+        self.assertIsNotNone(compactable_net("172.16.0.0/12"))
+        self.assertIsNone(compactable_net("0.0.0.0/0"))
+        self.assertIsNone(compactable_net("8.8.8.0/24"))       # public
+        self.assertIsNone(compactable_net("192.0.0.0/4"))      # not strict subset
+        self.assertIsNone(compactable_net(None))
+        self.assertIsNone(compactable_net("garbage"))
+
+    def test_empty_and_single(self):
+        self.assertEqual(compact_nets([], 0.5), [])
+        one = [self._net("10.0.0.0/24")]
+        self.assertEqual(compact_nets(one, 0.5), one)
+
+    def test_lossless_collapse_at_ratio_zero(self):
+        nets = [self._net("10.0.0.0/25"), self._net("10.0.0.128/25")]
+        out = compact_nets(nets, 0.0)
+        self.assertEqual([str(n) for n in out], ["10.0.0.0/24"])
+
+    def test_gap_merge_gated_by_ratio(self):
+        # 10.0.0.0/24 + 10.0.2.0/24 -> covering /22 wastes 512/1024 = 0.5.
+        nets = [self._net("10.0.0.0/24"), self._net("10.0.2.0/24")]
+        stay = compact_nets(nets, 0.4)
+        self.assertEqual(len(stay), 2)             # 0.4 < 0.5 waste -> no merge
+        merged = compact_nets(nets, 0.5)
+        self.assertEqual([str(n) for n in merged], ["10.0.0.0/22"])
+        self.assert_covers(["10.0.0.0/24", "10.0.2.0/24"], merged)
+
+    def test_never_crosses_rfc1918_boundary(self):
+        nets = [self._net("10.0.0.0/24"), self._net("172.16.0.0/24"),
+                self._net("192.168.0.0/24")]
+        out = compact_nets(nets, 0.999)
+        for n in out:
+            self.assertTrue(
+                any(n.subnet_of(b) for b in (
+                    self._net("10.0.0.0/8"),
+                    self._net("172.16.0.0/12"),
+                    self._net("192.168.0.0/16"),
+                )),
+                f"{n} escaped RFC 1918",
+            )
+        # Three distinct home blocks can never collapse below three rules.
+        self.assertEqual(len(out), 3)
+
+    def test_higher_ratio_compacts_at_least_as_hard(self):
+        nets = [self._net(f"10.0.{i}.0/24") for i in range(0, 8)]
+        low = compact_nets(nets, 0.1)
+        high = compact_nets(nets, 0.9)
+        self.assertLessEqual(len(high), len(low))
+        self.assert_covers([str(n) for n in nets], high)
+
+    def test_count_group_separates_eligible_from_fixed(self):
+        sg = {"IpPermissions": [{
+            "IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+            "IpRanges": [
+                {"CidrIp": "10.0.0.0/24"},     # eligible
+                {"CidrIp": "0.0.0.0/0"},       # fixed (public)
+            ],
+            "Ipv6Ranges": [{"CidrIpv6": "::/0"}],          # fixed
+            "UserIdGroupPairs": [{"GroupId": "sg-1"}],     # fixed
+        }]}
+        total, eligible = count_group(sg)
+        self.assertEqual((total, eligible), (4, 1))
+
+    def test_analyse_group_produces_revoke_and_authorise(self):
+        sg = {"GroupId": "sg-1", "IpPermissions": [{
+            "IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+            "IpRanges": [{"CidrIp": "10.0.0.0/24"}, {"CidrIp": "10.0.2.0/24"}],
+        }]}
+        a = analyse_group(sg, 0.5)
+        self.assertEqual(a["current_total"], 2)
+        self.assertEqual(a["projected_total"], 1)
+        self.assertEqual(a["rules_saved"], 1)
+        revoked = {ip["CidrIp"] for p in a["revoke"] for ip in p["IpRanges"]}
+        authed = {ip["CidrIp"] for p in a["authorise"] for ip in p["IpRanges"]}
+        self.assertEqual(revoked, {"10.0.0.0/24", "10.0.2.0/24"})
+        self.assertEqual(authed, {"10.0.0.0/22"})
+
+    def test_analyse_group_no_change_when_nothing_to_merge(self):
+        sg = {"GroupId": "sg-1", "IpPermissions": [{
+            "IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+            "IpRanges": [{"CidrIp": "10.0.0.0/24"}],
+        }]}
+        a = analyse_group(sg, 0.5)
+        self.assertEqual(a["rules_saved"], 0)
+        self.assertEqual(a["revoke"], [])
+        self.assertEqual(a["authorise"], [])
+
+    def test_build_compact_plan_shape(self):
+        sgs = [{
+            "GroupId": "sg-1", "GroupName": "web", "VpcId": "vpc-1",
+            "IpPermissions": [{
+                "IpProtocol": "tcp", "FromPort": 443, "ToPort": 443,
+                "IpRanges": [{"CidrIp": "10.0.0.0/24"}, {"CidrIp": "10.0.2.0/24"}],
+            }],
+        }]
+        plan = build_compact_plan(sgs, ratio=0.5, max_rules=60, region="us-east-1")
+        self.assertEqual(plan["schema"], "sg-tightener.plan/v1")
+        self.assertEqual(plan["tool"], "sg_compact")
+        self.assertEqual(plan["region"], "us-east-1")
+        self.assertIn("snapshot_hash", plan)
+        self.assertEqual(len(plan["groups"]), 1)
+        self.assertEqual(plan["groups"][0]["rules_saved"], 1)
 
 
 class TestStrictRfc1918(unittest.TestCase):

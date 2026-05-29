@@ -25,7 +25,8 @@ untouched.
 | `sg_diagnose.py` | Post-deploy diagnostic — find IPs being REJECTED and not covered |
 | `sg_ou_report.py` | Organisation-wide permissive-rule risk report (SG + NACL) |
 | `sg_extend.py` | Flow-log-driven, strictly-additive break-glass extender for live incidents |
-| `sg_tightener_test.py` | Regression suite — 44 tests, no AWS credentials required |
+| `sg_compact.py` | Widen RFC 1918 CIDRs to reclaim rule budget under the 60-rule SG limit |
+| `sg_tightener_test.py` | Regression suite — 66 tests, no AWS credentials required |
 | `iam-policy.json` | Minimum IAM permissions |
 | `install.sh` | Create the Python venv |
 | `requirements.txt` | Python dependencies |
@@ -37,7 +38,7 @@ untouched.
 ```bash
 ./install.sh
 source .venv/bin/activate
-python sg_tightener_test.py        # 44 tests should pass
+python sg_tightener_test.py        # 66 tests should pass
 ```
 
 Requires Python 3.9 or later.
@@ -128,6 +129,49 @@ Behaviour and safety:
   tightening cycle can fold the changes back into the evidence base.
 
 Requires either `--log-group` or `--s3-bucket`.
+
+---
+
+## Compaction: sg_compact.py
+
+AWS caps a security group at 60 rules. When a group nears that ceiling —
+often after one or more `sg_extend` runs during an incident — `sg_compact`
+reclaims budget by merging existing **RFC 1918** ingress CIDRs into fewer,
+wider blocks. It reads no flow logs and never removes access: every widened
+block is a superset of the blocks it replaces.
+
+You supply a **compaction ratio** — the fraction of unused (never-covered)
+addresses tolerated inside a widened CIDR. A ratio of `0.5` lets a block be
+used to cover a set of CIDRs even when half of that block's addresses are
+not currently allowed. Higher ratio → bigger gaps tolerated → harder
+compaction. Public CIDRs, IPv6, `0.0.0.0/0`, SG references, and prefix lists
+are never touched.
+
+```bash
+# 1. Plan mode with NO --ratio: just the stats. Shows which groups hold the
+#    most rules and what each candidate ratio would achieve.
+python sg_compact.py plan --region us-east-1
+
+# 2. Pick a ratio from the sweep and write a concrete plan.
+python sg_compact.py plan --region us-east-1 --ratio 0.5 --out plan.json
+
+# 3. Review plan.json, then apply (revokes narrow CIDRs, authorises widened).
+python sg_compact.py apply --plan plan.json
+
+# 4. If anything looks wrong afterwards:
+python sg_compact.py revert --manifest sg_compact-manifest-<ts>.json
+```
+
+Plan mode prints two things with no AWS writes:
+
+* **A ranking** of groups by current rule count — where the rules are, and
+  which groups are at or over the limit.
+* **A ratio sweep** — for each candidate ratio, the projected total rule
+  count, rules reclaimed, and how many groups would still exceed the limit.
+
+The plan reuses the `sg-tightener.plan/v1` schema, so it carries a snapshot
+hash (apply refuses to run against a changed estate) and is reverted by the
+same manifest machinery as `sg_tightener`.
 
 ---
 

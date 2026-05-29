@@ -26,7 +26,7 @@ untouched.
 | `sg_ou_report.py` | Organisation-wide permissive-rule risk report (SG + NACL) |
 | `sg_extend.py` | Flow-log-driven, strictly-additive break-glass extender for live incidents |
 | `sg_compact.py` | Widen RFC 1918 CIDRs to reclaim rule budget under the 60-rule SG limit |
-| `sg_tightener_test.py` | Regression suite — 66 tests, no AWS credentials required |
+| `sg_tightener_test.py` | Regression suite — 80 tests, no AWS credentials required |
 | `iam-policy.json` | Minimum IAM permissions |
 | `install.sh` | Create the Python venv |
 | `requirements.txt` | Python dependencies |
@@ -38,7 +38,7 @@ untouched.
 ```bash
 ./install.sh
 source .venv/bin/activate
-python sg_tightener_test.py        # 66 tests should pass
+python sg_tightener_test.py        # 80 tests should pass
 ```
 
 Requires Python 3.9 or later.
@@ -87,7 +87,15 @@ adds them to the named security groups immediately. It is strictly
 additive — nothing is ever removed.
 
 ```bash
-# CloudWatch Logs source
+# Auto-discovery (recommended for live incidents): omit --groups and the
+# tool derives them from the destination ENIs of the REJECTed flows. The
+# operator only needs to know "things are broken in this region".
+python sg_extend.py \
+  --region us-east-1 \
+  --log-group /aws/vpc/flowlogs \
+  --hours 24
+
+# Same, but scoped to specific groups when you already know which to fix.
 python sg_extend.py \
   --region us-east-1 \
   --groups sg-aaaa,sg-bbbb \
@@ -95,18 +103,35 @@ python sg_extend.py \
   --hours 24 \
   --tolerance 0.5 \
   --ports 443,5432 \
-  --description "DR failover 2026-05-28"
+  --description "DR failover 2026-05-29"
 
 # S3 source
 python sg_extend.py \
   --region us-east-1 \
-  --groups sg-aaaa,sg-bbbb \
   --s3-bucket my-flow-logs --s3-prefix AWSLogs/123456789012/vpcflowlogs \
   --hours 24
 ```
 
 Behaviour and safety:
 
+* **Auto-group-discovery.** When `--groups` is omitted, `sg_extend` looks
+  up the destination ENI of each REJECTed flow via
+  `DescribeNetworkInterfaces` and derives the set of attached security
+  groups. Each group only receives rules for the flows that hit its own
+  ENIs, so a typo in one operator's head doesn't spray rules across the
+  estate. A hard `--max-groups` cap (default 20) refuses to act on more
+  than that many groups in one run; widen the cap or tighten `--ports`
+  / `--hours` if a real incident exceeds it.
+* **AWS service summarisation.** When `--include-public` is on, public
+  source IPs that fall inside an AWS-published service prefix (Lambda
+  Hyperplane ENI traffic appearing under EC2, Route53 health-check
+  pingers, etc.) are collapsed into the service's summary CIDR rather
+  than enumerating `/32` host routes that go stale as soon as AWS
+  rotates the IP. The rule description carries the AWS service / region
+  label so the rule's origin is visible at audit time. The catch-all
+  `AMAZON` class is deliberately ignored — it covers essentially all of
+  AWS and is too broad to be a trust source. Pass `--no-aws-summarise`
+  to revert to per-IP host routes.
 * The rejected source IPs are **grouped into the smallest CIDR blocks
   allowed by `--tolerance`** — the fraction of unused (never-observed)
   addresses tolerated inside a grouping block. `--tolerance 0.5` lets a CIDR
@@ -116,8 +141,7 @@ Behaviour and safety:
   Grouping is per protocol/port, so a rule only opens the port that was
   actually rejected.
 * **Private by default.** Only RFC 1918 source IPs are added; internet
-  REJECT noise is ignored unless `--include-public` is passed. (Public IPs,
-  when included, stay as `/32` host routes — they are never widened.)
+  REJECT noise is ignored unless `--include-public` is passed.
 * `--ports` restricts the rebuild to specific destination ports/ranges. Use
   it to scope a break-glass to just the service that is down.
 * A per-group rule budget (`--max-rules`, default 60) is enforced. A group

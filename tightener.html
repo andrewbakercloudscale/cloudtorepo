@@ -126,13 +126,15 @@ Lateral-movement surface area reduction:  <span class="str">99.96%</span></pre>
     <div class="service-card reveal">
       <h3>sg_extend.py</h3>
       <div class="tags">
-        <span class="tag">break-glass</span><span class="tag">flow-log driven</span><span class="tag">additive only</span>
+        <span class="tag">break-glass</span><span class="tag">auto-discover</span><span class="tag">AWS-service aware</span>
       </div>
       <p style="font-size:0.8rem;color:var(--muted);margin-top:0.5rem;">
         For DR failovers and live incidents. Reads the last 24h of flow logs,
-        finds the source IPs being REJECTED, and adds them &mdash; grouped into
-        CIDRs by a tolerance for unused space. Never removes anything; writes a
-        manifest folded back into the evidence base.
+        finds the source IPs being REJECTED, and &mdash; when <code>--groups</code>
+        is omitted &mdash; looks up each REJECTed destination ENI to derive which
+        SGs need the rule. Lambda / Route53-healthcheck traffic collapses into
+        the AWS service prefix instead of /32s. Strictly additive; manifest is
+        folded back into the evidence base on the next cycle.
       </p>
       <a href="https://github.com/andrewbakercloudscale/cloudtorepo/blob/main/sg-tightener/sg_extend.py" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.4rem;margin-top:0.75rem;font-size:0.78rem;color:var(--accent2);text-decoration:none;"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub →</a>
     </div>
@@ -217,15 +219,24 @@ python sg_tightener.py revert <span class="flag">--manifest</span> manifest-2026
   <div style="margin-top:1.5rem;">
     <div class="output-card reveal" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;">
       <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:1rem;">Incident-time: break-glass extend, then compact</h3>
-<pre><span class="cm"># Outage: unblock whatever is being REJECTED right now (last 24h of flow logs).</span>
-<span class="cm"># Sources are grouped into CIDRs by --tolerance (fraction of unused IPs allowed).</span>
+<pre><span class="cm"># Outage: at 2am you know things are broken — but not which SGs, which CIDRs,</span>
+<span class="cm"># or which ports. Omit --groups and sg_extend discovers everything itself</span>
+<span class="cm"># from the last 24h of REJECT flow logs (destination ENI -> attached SGs).</span>
+python sg_extend.py \
+  <span class="flag">--region</span> us-east-1 \
+  <span class="flag">--log-group</span> /aws/vpc/flowlogs
+
+<span class="cm"># When you do know which SGs, scope it explicitly. --include-public also</span>
+<span class="cm"># turns on AWS-service summarisation: Lambda Hyperplane / R53 health-check</span>
+<span class="cm"># sources collapse into the published service prefix, not /32 host routes.</span>
 python sg_extend.py \
   <span class="flag">--region</span> us-east-1 \
   <span class="flag">--groups</span> sg-aaaa,sg-bbbb \
   <span class="flag">--log-group</span> /aws/vpc/flowlogs \
   <span class="flag">--hours</span> 24 \
   <span class="flag">--tolerance</span> 0.5 \
-  <span class="flag">--ports</span> 443,5432
+  <span class="flag">--ports</span> 443,5432 \
+  <span class="flag">--include-public</span>
 
 <span class="cm"># Afterwards a group may be near the 60-rule cap. See where the rules are and</span>
 <span class="cm"># what each compaction ratio would reclaim (no AWS writes):</span>
@@ -404,6 +415,32 @@ python sg_compact.py revert <span class="flag">--manifest</span> sg_compact-mani
         connectivity must come back in minutes. It reads the last 24h of flow
         logs, adds the REJECTED private sources &mdash; collapsed into CIDRs by a
         configurable tolerance &mdash; strictly additively, and logs a manifest.
+      </p>
+      <p>
+        At 2am the operator often knows <em>something</em> is broken but not
+        <em>which</em> security groups need patching. Omit <code>--groups</code>
+        and <code>sg_extend</code> looks up each REJECTed destination ENI and
+        derives the attached SGs itself; flows are attributed only to the SGs
+        whose ENIs actually saw them, so a typo can't fan rules out across the
+        estate. A <code>--max-groups</code> cap (default 20) is the hard ceiling.
+      </p>
+    </div>
+    <div class="hard-card reveal">
+      <h3>AWS service summarisation</h3>
+      <p>
+        VPC Lambda traffic, Route53 health-checkers, and other managed-ENI
+        sources arrive from AWS-published IP ranges that rotate over time.
+        When <code>--include-public</code> is on, <code>sg_extend</code>
+        classifies each public source against the AWS <code>ip-ranges.json</code>
+        and collapses every flow that falls inside a service prefix into one
+        rule per service &mdash; instead of a fistful of /32s that go stale on
+        the next AWS rotation. The rule description tags the service and region
+        for audit visibility.
+      </p>
+      <p>
+        The <code>AMAZON</code> catch-all is deliberately blocklisted &mdash;
+        it covers essentially all of AWS and is too broad to be a trust source.
+        Pass <code>--no-aws-summarise</code> to revert to per-IP host routes.
       </p>
     </div>
     <div class="hard-card reveal">

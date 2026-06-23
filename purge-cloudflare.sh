@@ -5,7 +5,7 @@ CREDS="${HOME}/Desktop/github/.creds"
 source "${CREDS}"
 CF_CF_CREDS="${HOME}/Desktop/github/.cf-credentials"
 # shellcheck disable=SC1090
-[[ -f "${CF_CF_CREDS}" && -z "${CF_KEY:-}" ]] && source "${CF_CF_CREDS}"
+[[ -f "${CF_CF_CREDS}" ]] && source "${CF_CF_CREDS}"
 
 echo "Purging Cloudflare cache for andrewbaker.ninja..."
 curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/purge_cache" \

@@ -38,10 +38,39 @@ untouched.
 ```bash
 ./install.sh
 source .venv/bin/activate
-python sg_tightener_test.py        # 80 tests should pass
+python sg_tightener_test.py        # 101 tests should pass
 ```
 
 Requires Python 3.9 or later.
+
+### Flow-log format requirements
+
+`analyse` now verifies the flow logs feeding your `--log-group` / `--s3-bucket`
+with `ec2:DescribeFlowLogs` before writing an approved list, and derives its
+record parsing from the configured log format. Two things to know:
+
+- **The default flow-log format only shows the next hop.** It has no
+  `pkt-srcaddr` field, so traffic that reaches an interface through an
+  intermediate hop — a **transit gateway attachment ENI** or a **NAT gateway
+  ENI** — is recorded with the intermediate interface's private IP as
+  `srcaddr`, not the true client. In a TGW estate that puts infrastructure
+  addresses into `approved.json` and misses the real client CIDRs. `analyse`
+  warns loudly when the format lacks `pkt-srcaddr`. Flow logs cannot be edited
+  in place; create a replacement flow log with a custom format such as:
+
+  ```
+  ${version} ${account-id} ${interface-id} ${srcaddr} ${dstaddr} ${srcport} ${dstport} ${protocol} ${packets} ${bytes} ${start} ${end} ${action} ${log-status} ${pkt-srcaddr} ${pkt-dstaddr} ${flow-direction}
+  ```
+
+- **Fatal misconfigurations abort the run** rather than producing a misleading
+  list: flow logs that capture `REJECT` traffic only, formats with no
+  `${action}` or no source-address field at all, and destinations fed by a mix
+  of different formats (positional parsing is impossible when the column order
+  varies per record). Inactive flow logs and delivery errors produce warnings.
+
+The check degrades gracefully: without the `ec2:DescribeFlowLogs` permission
+(now included in `iam-policy.json`), or for logs delivered from another
+account, `analyse` proceeds assuming the default format and says so.
 
 ---
 

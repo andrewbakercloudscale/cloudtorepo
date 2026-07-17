@@ -2,10 +2,11 @@
 """Regression test suite for sg-tightener.
 
 Covers the CIDR collapsing algorithm, eligibility & port-merge logic,
-the partition detector and severity-weighted risk score in the OU
-report, the input validation and flow-log discovery/collapse logic in
-sg_extend, and the range-aware CIDR widening / rule compaction in
-sg_compact.
+the flow-log configuration preflight and format-aware record parsing
+(next-hop vs pkt-srcaddr visibility), the partition detector and
+severity-weighted risk score in the OU report, the input validation
+and flow-log discovery/collapse logic in sg_extend, and the
+range-aware CIDR widening / rule compaction in sg_compact.
 
 Any fix to the algorithm or parsing logic must keep this suite passing.
 
@@ -24,6 +25,11 @@ from sg_tightener import (
     merge_port_ranges,
     rule_is_eligible,
     _is_strict_rfc1918,
+    parse_log_format,
+    check_flow_log_config,
+    build_cloudwatch_query,
+    ips_from_flow_log_lines,
+    DEFAULT_LOG_FORMAT_FIELDS,
 )
 from sg_ou_report import (
     parse_partition_from_arn,
@@ -706,6 +712,179 @@ class TestStrictRfc1918(unittest.TestCase):
         self.assertFalse(_is_strict_rfc1918(ipaddress.ip_network("172.40.0.0/16")))
         self.assertFalse(_is_strict_rfc1918(ipaddress.ip_network("192.0.0.0/4")))
         self.assertFalse(_is_strict_rfc1918(ipaddress.ip_network("0.0.0.0/0")))
+
+
+class TestFlowLogPreflight(unittest.TestCase):
+    """analyse must verify the flow-log configuration before trusting it.
+    The default format has no pkt-srcaddr: for traffic through a transit
+    gateway attachment ENI or NAT gateway ENI, srcaddr records the
+    intermediate hop's address, not the true source."""
+
+    DEFAULT_FORMAT = (
+        "${version} ${account-id} ${interface-id} ${srcaddr} ${dstaddr} "
+        "${srcport} ${dstport} ${protocol} ${packets} ${bytes} ${start} "
+        "${end} ${action} ${log-status}"
+    )
+    DETAILED_FORMAT = (
+        "${version} ${account-id} ${interface-id} ${srcaddr} ${dstaddr} "
+        "${srcport} ${dstport} ${protocol} ${packets} ${bytes} ${start} "
+        "${end} ${action} ${log-status} ${pkt-srcaddr} ${pkt-dstaddr} "
+        "${flow-direction}"
+    )
+
+    @staticmethod
+    def _fl(fmt, **kw):
+        fl = {
+            "FlowLogId": "fl-0123456789abcdef0",
+            "FlowLogStatus": "ACTIVE",
+            "TrafficType": "ALL",
+            "LogFormat": fmt,
+        }
+        fl.update(kw)
+        return fl
+
+    def test_parse_default_format_yields_v2_fields_in_order(self):
+        self.assertEqual(parse_log_format(self.DEFAULT_FORMAT), DEFAULT_LOG_FORMAT_FIELDS)
+
+    def test_default_format_warns_about_next_hop_visibility(self):
+        check = check_flow_log_config([self._fl(self.DEFAULT_FORMAT)])
+        self.assertEqual(check.errors, [])
+        self.assertTrue(check.verified)
+        self.assertTrue(any("transit gateway" in w and "pkt-srcaddr" in w for w in check.warnings))
+
+    def test_detailed_format_produces_no_warnings(self):
+        check = check_flow_log_config([self._fl(self.DETAILED_FORMAT)])
+        self.assertEqual(check.errors, [])
+        self.assertEqual(check.warnings, [])
+        self.assertEqual(check.fields[-3:], ["pkt-srcaddr", "pkt-dstaddr", "flow-direction"])
+
+    def test_no_matching_flow_log_is_unverified_with_warning(self):
+        check = check_flow_log_config([])
+        self.assertFalse(check.verified)
+        self.assertEqual(check.fields, DEFAULT_LOG_FORMAT_FIELDS)
+        self.assertTrue(any("cannot be verified" in w or "cannot verify" in w for w in check.warnings))
+
+    def test_reject_only_flow_log_is_fatal_for_accept_analysis(self):
+        check = check_flow_log_config([self._fl(self.DEFAULT_FORMAT, TrafficType="REJECT")])
+        self.assertTrue(any("REJECT traffic only" in e for e in check.errors))
+
+    def test_accept_only_flow_log_is_fatal_for_reject_analysis(self):
+        check = check_flow_log_config(
+            [self._fl(self.DEFAULT_FORMAT, TrafficType="ACCEPT")], accepted_only=False
+        )
+        self.assertTrue(any("ACCEPT traffic only" in e for e in check.errors))
+
+    def test_missing_action_field_is_fatal(self):
+        check = check_flow_log_config([self._fl("${srcaddr} ${dstaddr}")])
+        self.assertTrue(any("action" in e for e in check.errors))
+
+    def test_missing_all_source_fields_is_fatal(self):
+        check = check_flow_log_config([self._fl("${dstaddr} ${action}")])
+        self.assertTrue(any("no source address" in e for e in check.errors))
+
+    def test_mixed_formats_on_one_destination_is_fatal(self):
+        check = check_flow_log_config([
+            self._fl(self.DEFAULT_FORMAT),
+            self._fl(self.DETAILED_FORMAT, FlowLogId="fl-0fedcba9876543210"),
+        ])
+        self.assertTrue(any("DIFFERENT log formats" in e for e in check.errors))
+
+    def test_inactive_flow_log_warns(self):
+        check = check_flow_log_config([self._fl(self.DEFAULT_FORMAT, FlowLogStatus="FAILED")])
+        self.assertTrue(any("not ACTIVE" in w for w in check.warnings))
+
+    def test_delivery_error_warns(self):
+        check = check_flow_log_config(
+            [self._fl(self.DEFAULT_FORMAT, DeliverLogsErrorMessage="Access error")]
+        )
+        self.assertTrue(any("delivery error" in w for w in check.warnings))
+
+
+class TestFlowLogLineParsing(unittest.TestCase):
+    """Record parsing must follow the configured field order and prefer the
+    packet-level (original) source address. Sample records are taken from
+    the AWS VPC Flow Logs documentation examples."""
+
+    # Custom format used in the AWS "traffic through a transit gateway" example.
+    TGW_FIELDS = parse_log_format(
+        "${version} ${interface-id} ${account-id} ${vpc-id} ${subnet-id} "
+        "${instance-id} ${srcaddr} ${dstaddr} ${srcport} ${dstport} "
+        "${protocol} ${tcp-flags} ${type} ${pkt-srcaddr} ${pkt-dstaddr} "
+        "${action} ${log-status}"
+    )
+    # On the TGW attachment ENI, srcaddr is the TGW interface (10.40.1.175);
+    # the true client is only in pkt-srcaddr (10.20.33.164).
+    TGW_LINE = (
+        "3 eni-11111111111111111 123456789010 vpc-abcdefab012345678 "
+        "subnet-11111111aaaaaaaaa - 10.40.1.175 10.40.2.236 39812 80 6 3 "
+        "IPv4 10.20.33.164 10.40.2.236 ACCEPT OK"
+    )
+
+    def test_default_format_line_uses_srcaddr(self):
+        line = ("2 123456789010 eni-1235b8ca123456789 172.31.16.139 172.31.16.21 "
+                "20641 22 6 20 4249 1418530010 1418530070 ACCEPT OK")
+        ips = ips_from_flow_log_lines([line], DEFAULT_LOG_FORMAT_FIELDS)
+        self.assertEqual(ips, {"172.31.16.139"})
+
+    def test_tgw_record_yields_true_client_not_next_hop(self):
+        ips = ips_from_flow_log_lines([self.TGW_LINE], self.TGW_FIELDS)
+        self.assertEqual(ips, {"10.20.33.164"})
+        self.assertNotIn("10.40.1.175", ips)
+
+    def test_dash_pkt_srcaddr_falls_back_to_srcaddr(self):
+        line = self.TGW_LINE.replace("10.20.33.164", "-")
+        ips = ips_from_flow_log_lines([line], self.TGW_FIELDS)
+        self.assertEqual(ips, {"10.40.1.175"})
+
+    def test_rejected_traffic_excluded_when_analysing_accepts(self):
+        line = self.TGW_LINE.replace(" ACCEPT ", " REJECT ")
+        self.assertEqual(ips_from_flow_log_lines([line], self.TGW_FIELDS), set())
+
+    def test_egress_records_excluded_when_direction_available(self):
+        fields = parse_log_format("${srcaddr} ${pkt-srcaddr} ${action} ${flow-direction}")
+        lines = [
+            "10.0.0.5 10.0.0.5 ACCEPT egress",
+            "203.0.113.9 203.0.113.9 ACCEPT ingress",
+        ]
+        self.assertEqual(ips_from_flow_log_lines(lines, fields), {"203.0.113.9"})
+
+    def test_header_and_short_lines_skipped(self):
+        header = " ".join(DEFAULT_LOG_FORMAT_FIELDS)
+        ips = ips_from_flow_log_lines([header, "too short line"], DEFAULT_LOG_FORMAT_FIELDS)
+        self.assertEqual(ips, set())
+
+
+class TestCloudwatchQueryBuilder(unittest.TestCase):
+    """Logs Insights auto-discovers named fields only for DEFAULT-format
+    flow logs; custom formats must be parsed positionally out of @message."""
+
+    def test_default_format_uses_discovered_fields(self):
+        query, src_field = build_cloudwatch_query(list(DEFAULT_LOG_FORMAT_FIELDS))
+        self.assertEqual(src_field, "srcAddr")
+        self.assertIn('filter action = "ACCEPT"', query)
+        self.assertNotIn("parse @message", query)
+
+    def test_custom_format_parses_message_and_prefers_pkt_srcaddr(self):
+        fields = parse_log_format(
+            "${version} ${srcaddr} ${dstaddr} ${action} ${pkt-srcaddr} ${flow-direction}"
+        )
+        query, src_field = build_cloudwatch_query(fields)
+        self.assertEqual(src_field, "f4")            # pkt-srcaddr position
+        self.assertIn("parse @message", query)
+        self.assertIn('filter f3 = "ACCEPT"', query)  # action position
+        self.assertIn('filter f5 = "ingress"', query)
+        # one glob star per configured field
+        pattern = query.split('parse @message "')[1].split('"')[0]
+        self.assertEqual(len(pattern.split()), len(fields))
+
+    def test_custom_format_without_pkt_srcaddr_falls_back_to_srcaddr(self):
+        fields = parse_log_format("${version} ${srcaddr} ${dstaddr} ${action}")
+        _, src_field = build_cloudwatch_query(fields)
+        self.assertEqual(src_field, "f1")
+
+    def test_reject_analysis_filters_reject(self):
+        query, _ = build_cloudwatch_query(list(DEFAULT_LOG_FORMAT_FIELDS), accepted_only=False)
+        self.assertIn('filter action = "REJECT"', query)
 
 
 if __name__ == "__main__":

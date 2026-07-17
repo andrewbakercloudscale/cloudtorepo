@@ -6,7 +6,14 @@ tightest covering CIDR blocks empirically observed in VPC flow logs.
 
 Modes:
   analyse  Read flow logs (CloudWatch Logs or S3) and emit an
-           approved-IPs JSON list.
+           approved-IPs JSON list. Before reading, the flow logs
+           feeding the destination are checked with
+           ec2:DescribeFlowLogs: the parse layout is derived from
+           the configured log format, and a warning is raised when
+           the format lacks pkt-srcaddr — without it, traffic that
+           arrives through a transit gateway or NAT gateway is
+           recorded under the intermediate interface's IP (the next
+           hop), not the true source.
   plan     Read the approved IPs and the current SG inventory and
            emit a plan.json describing rules to revoke and rules
            to authorise. Plans are signed with a state hash so
@@ -41,6 +48,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import sys
 from typing import Iterable, Sequence
 
@@ -313,6 +321,152 @@ def _list_security_groups(region: str) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
+# Flow-log configuration preflight
+# --------------------------------------------------------------------------- #
+# VPC flow logs only record the TRUE origin of traffic that reaches an
+# interface through an intermediate hop — a transit gateway attachment ENI,
+# a NAT gateway ENI, an EKS pod behind a node ENI — in the version-3
+# ``pkt-srcaddr`` field. The DEFAULT log format stops at version 2: for such
+# flows its ``srcaddr`` contains the private IP of the INTERMEDIATE interface
+# (the next hop), not the client. An approved list built from default-format
+# logs in a transit-gateway estate therefore contains TGW/NAT infrastructure
+# addresses and misses the real client CIDRs. These checks verify the flow
+# logs feeding the analysis before any list is written.
+
+DEFAULT_LOG_FORMAT_FIELDS = [
+    "version", "account-id", "interface-id", "srcaddr", "dstaddr",
+    "srcport", "dstport", "protocol", "packets", "bytes",
+    "start", "end", "action", "log-status",
+]
+
+# Custom format we recommend when warning: original addresses, direction,
+# and everything the default format already provided.
+RECOMMENDED_LOG_FORMAT = (
+    "${version} ${account-id} ${interface-id} ${srcaddr} ${dstaddr} "
+    "${srcport} ${dstport} ${protocol} ${packets} ${bytes} ${start} ${end} "
+    "${action} ${log-status} ${pkt-srcaddr} ${pkt-dstaddr} ${flow-direction}"
+)
+
+
+def parse_log_format(log_format: str) -> list[str]:
+    """Ordered field names from a flow-log format string (``${field} ...``)."""
+    return re.findall(r"\$\{([a-z0-9-]+)\}", log_format or "")
+
+
+@dataclasses.dataclass
+class FlowLogCheck:
+    fields: list[str]        # ordered fields the parsers should use
+    warnings: list[str]
+    errors: list[str]        # fatal: the analysis output would be garbage
+    verified: bool           # True when a matching flow-log config was found
+
+
+def check_flow_log_config(flow_logs: list[dict], accepted_only: bool = True) -> FlowLogCheck:
+    """Evaluates the describe_flow_logs entries that feed the analysis
+    destination and returns the parse field order plus warnings/errors."""
+    warnings: list[str] = []
+    errors: list[str] = []
+
+    if not flow_logs:
+        return FlowLogCheck(
+            fields=list(DEFAULT_LOG_FORMAT_FIELDS),
+            warnings=[
+                "no flow log delivering to this destination was found in this "
+                "account/region, so the log format cannot be verified (the logs "
+                "may be delivered from another account). Analysis will assume "
+                "the DEFAULT format — if these logs use a custom format the "
+                "parsed columns WILL be wrong. Note the default format has no "
+                "pkt-srcaddr field: traffic arriving through a transit gateway "
+                "or NAT gateway is recorded with the intermediate interface's "
+                "IP (the next hop), not the true source."
+            ],
+            errors=[],
+            verified=False,
+        )
+
+    for fl in flow_logs:
+        flid = fl.get("FlowLogId", "?")
+        status = fl.get("FlowLogStatus", "")
+        if status != "ACTIVE":
+            warnings.append(f"flow log {flid} status is {status or 'unknown'}, not ACTIVE — its data may be stale or absent")
+        if fl.get("DeliverLogsErrorMessage"):
+            warnings.append(f"flow log {flid} reports a delivery error: {fl['DeliverLogsErrorMessage']}")
+        ttype = fl.get("TrafficType", "")
+        if accepted_only and ttype == "REJECT":
+            errors.append(f"flow log {flid} captures REJECT traffic only — an accepted-traffic analysis would observe nothing")
+        if not accepted_only and ttype == "ACCEPT":
+            errors.append(f"flow log {flid} captures ACCEPT traffic only — a rejected-traffic analysis would observe nothing")
+
+    formats = {fl.get("LogFormat") or "" for fl in flow_logs}
+    if len(formats) > 1:
+        errors.append(
+            "the flow logs feeding this destination use DIFFERENT log formats; "
+            "records in one destination cannot be parsed positionally when the "
+            "column order varies per record. Align the formats or split the "
+            "destinations."
+        )
+        return FlowLogCheck(list(DEFAULT_LOG_FORMAT_FIELDS), warnings, errors, verified=True)
+
+    fields = parse_log_format(next(iter(formats)))
+    if not fields:
+        fields = list(DEFAULT_LOG_FORMAT_FIELDS)
+
+    if "action" not in fields:
+        errors.append("log format has no ${action} field — accepted traffic cannot be distinguished from rejected traffic")
+    if "srcaddr" not in fields and "pkt-srcaddr" not in fields:
+        errors.append("log format has neither ${srcaddr} nor ${pkt-srcaddr} — there is no source address to analyse")
+
+    if "pkt-srcaddr" not in fields:
+        warnings.append(
+            "log format has no ${pkt-srcaddr} (v3) field. For traffic that "
+            "reaches an interface through an intermediate hop — a transit "
+            "gateway attachment ENI or a NAT gateway ENI — ${srcaddr} records "
+            "the intermediate interface's private IP (the NEXT HOP), not the "
+            "original client. Approved lists built from these logs can contain "
+            "TGW/NAT infrastructure addresses and miss the real client CIDRs. "
+            "Flow logs cannot be edited in place: create a replacement flow "
+            f"log with a custom format such as: {RECOMMENDED_LOG_FORMAT}"
+        )
+    if "flow-direction" not in fields:
+        warnings.append(
+            "log format has no ${flow-direction} (v5) field — ingress and "
+            "egress records cannot be separated, so the destinations of "
+            "OUTBOUND connections also appear as observed sources and inflate "
+            "the approved list."
+        )
+
+    return FlowLogCheck(fields, warnings, errors, verified=True)
+
+
+def _describe_matching_flow_logs(region: str, log_group: str | None, s3_bucket: str | None):
+    """Fetches flow-log configs that deliver to the analysis destination.
+    Returns None when the API call itself fails (missing ec2:DescribeFlowLogs
+    permission, endpoint issues) so the caller can degrade to a warning."""
+    try:
+        ec2 = _client("ec2", region)
+        all_logs: list[dict] = []
+        paginator = ec2.get_paginator("describe_flow_logs")
+        for page in paginator.paginate():
+            all_logs.extend(page.get("FlowLogs", []))
+    except Exception as exc:  # noqa: BLE001 — any API failure degrades to "unverified"
+        LOG.warning("could not verify flow-log configuration (ec2:DescribeFlowLogs failed: %s)", exc)
+        return None
+
+    matched = []
+    for fl in all_logs:
+        dest_type = fl.get("LogDestinationType", "cloud-watch-logs")
+        if log_group and dest_type == "cloud-watch-logs" and fl.get("LogGroupName") == log_group:
+            matched.append(fl)
+        elif s3_bucket and dest_type == "s3":
+            # LogDestination is arn:aws:s3:::bucket or arn:aws:s3:::bucket/prefix
+            dest = fl.get("LogDestination", "")
+            bucket = dest.split(":::", 1)[-1].split("/", 1)[0]
+            if bucket == s3_bucket:
+                matched.append(fl)
+    return matched
+
+
+# --------------------------------------------------------------------------- #
 # Analyse
 # --------------------------------------------------------------------------- #
 
@@ -327,16 +481,43 @@ class AnalyseConfig:
     accepted_only: bool = True
 
 
-def _analyse_from_cloudwatch(cfg: AnalyseConfig) -> list[str]:
+def build_cloudwatch_query(fields: list[str], accepted_only: bool = True) -> tuple[str, str]:
+    """Builds the Logs Insights query for the given log format and returns
+    (query, result_field_name).
+
+    CloudWatch auto-discovers named fields (srcAddr, action, ...) ONLY for
+    default-format VPC flow logs. Custom-format records must be split
+    positionally out of @message, otherwise the query silently returns
+    nothing — so the query is derived from the actual configured format."""
+    wanted_action = "ACCEPT" if accepted_only else "REJECT"
+    if fields == DEFAULT_LOG_FORMAT_FIELDS:
+        query = (
+            "fields srcAddr, action | "
+            f"filter action = \"{wanted_action}\" | "
+            "stats count() by srcAddr | "
+            "limit 10000"
+        )
+        return query, "srcAddr"
+
+    idx = {f: i for i, f in enumerate(fields)}
+    pattern = " ".join("*" for _ in fields)
+    aliases = ", ".join(f"f{i}" for i in range(len(fields)))
+    src = f"f{idx['pkt-srcaddr']}" if "pkt-srcaddr" in idx else f"f{idx['srcaddr']}"
+    query = (
+        f"fields @message | parse @message \"{pattern}\" as {aliases} | "
+        f"filter f{idx['action']} = \"{wanted_action}\" | "
+    )
+    if "flow-direction" in idx:
+        query += f"filter f{idx['flow-direction']} = \"ingress\" | "
+    query += f"stats count() by {src} | limit 10000"
+    return query, src
+
+
+def _analyse_from_cloudwatch(cfg: AnalyseConfig, fields: list[str]) -> list[str]:
     logs = _client("logs", cfg.region)
     end = dt.datetime.now(dt.timezone.utc)
     start = end - dt.timedelta(days=cfg.days)
-    query = (
-        "fields srcAddr, action | "
-        f"filter action = \"{ 'ACCEPT' if cfg.accepted_only else 'REJECT' }\" | "
-        "stats count() by srcAddr | "
-        "limit 10000"
-    )
+    query, src_field = build_cloudwatch_query(fields, cfg.accepted_only)
     start_resp = logs.start_query(
         logGroupName=cfg.log_group,
         startTime=int(start.timestamp()),
@@ -349,10 +530,50 @@ def _analyse_from_cloudwatch(cfg: AnalyseConfig) -> list[str]:
         if result["status"] in ("Complete", "Failed", "Cancelled", "Timeout"):
             break
     rows = result.get("results", []) if result["status"] == "Complete" else []
-    return [c["value"] for row in rows for c in row if c["field"] == "srcAddr"]
+    # '-' is the flow-log placeholder for "not applicable" (e.g. pkt-srcaddr
+    # on records where it could not be computed) — never a real source.
+    return [
+        c["value"]
+        for row in rows
+        for c in row
+        if c["field"] == src_field and c["value"] != "-"
+    ]
 
 
-def _analyse_from_s3(cfg: AnalyseConfig) -> list[str]:
+def ips_from_flow_log_lines(lines: Iterable[str], fields: list[str], accepted_only: bool = True) -> set[str]:
+    """Extracts observed source addresses from space-separated flow-log
+    records laid out per ``fields``. Prefers pkt-srcaddr (the ORIGINAL
+    source) over srcaddr, which for traffic through a transit gateway or
+    NAT gateway interface contains the intermediate hop's address."""
+    idx = {f: i for i, f in enumerate(fields)}
+    src_i = idx.get("pkt-srcaddr", idx.get("srcaddr"))
+    fallback_i = idx.get("srcaddr")
+    action_i = idx.get("action")
+    dir_i = idx.get("flow-direction")
+    if src_i is None or action_i is None:
+        return set()
+    wanted_action = "ACCEPT" if accepted_only else "REJECT"
+    n = len(fields)
+    ips: set[str] = set()
+    for line in lines:
+        parts = line.split()
+        # Also skips each file's header row: its 'action' column holds the
+        # literal field name, which never equals the wanted action.
+        if len(parts) < n:
+            continue
+        if parts[action_i] != wanted_action:
+            continue
+        if dir_i is not None and parts[dir_i] == "egress":
+            continue
+        src = parts[src_i]
+        if src == "-" and fallback_i is not None:
+            src = parts[fallback_i]
+        if src != "-":
+            ips.add(src)
+    return ips
+
+
+def _analyse_from_s3(cfg: AnalyseConfig, fields: list[str]) -> list[str]:
     if not cfg.s3_bucket:
         return []
     s3 = _client("s3")
@@ -372,16 +593,8 @@ def _analyse_from_s3(cfg: AnalyseConfig) -> list[str]:
                 body = s3.get_object(Bucket=cfg.s3_bucket, Key=obj["Key"])["Body"].read()
                 if obj["Key"].endswith(".gz"):
                     body = gzip.decompress(body)
-                for line in body.decode("utf-8", errors="ignore").splitlines():
-                    parts = line.split()
-                    if len(parts) < 14:
-                        continue
-                    src, action = parts[3], parts[12]
-                    if cfg.accepted_only and action != "ACCEPT":
-                        continue
-                    if not cfg.accepted_only and action != "REJECT":
-                        continue
-                    ips.add(src)
+                lines = body.decode("utf-8", errors="ignore").splitlines()
+                ips |= ips_from_flow_log_lines(lines, fields, cfg.accepted_only)
             except Exception as exc:  # noqa: BLE001 — broad on purpose, see below
                 failed += 1
                 LOG.warning("failed to read s3://%s/%s: %s", cfg.s3_bucket, obj["Key"], exc)
@@ -394,12 +607,44 @@ def _analyse_from_s3(cfg: AnalyseConfig) -> list[str]:
 
 
 def run_analyse(cfg: AnalyseConfig) -> dict:
-    if cfg.log_group:
-        ips = _analyse_from_cloudwatch(cfg)
-    elif cfg.s3_bucket:
-        ips = _analyse_from_s3(cfg)
-    else:
+    if not cfg.log_group and not cfg.s3_bucket:
         raise ValueError("either --log-group or --s3-bucket is required")
+
+    # Preflight: verify the flow logs feeding this destination can actually
+    # answer "who talks to these instances" before writing any approved list.
+    matched = _describe_matching_flow_logs(cfg.region, cfg.log_group, cfg.s3_bucket)
+    if matched is None:
+        check = FlowLogCheck(
+            fields=list(DEFAULT_LOG_FORMAT_FIELDS),
+            warnings=[
+                "flow-log configuration could not be verified (add "
+                "ec2:DescribeFlowLogs to the analysis role to enable this "
+                "check) — assuming the DEFAULT log format. If these logs use "
+                "a custom format the parsed columns WILL be wrong, and the "
+                "default format records only the next-hop address (not the "
+                "true source) for traffic through a transit gateway or NAT "
+                "gateway."
+            ],
+            errors=[],
+            verified=False,
+        )
+    else:
+        check = check_flow_log_config(matched, cfg.accepted_only)
+
+    for warning in check.warnings:
+        LOG.warning("flow-log config: %s", warning)
+    if check.errors:
+        for error in check.errors:
+            LOG.error("flow-log config: %s", error)
+        raise RuntimeError(
+            "flow-log configuration cannot support this analysis: "
+            + "; ".join(check.errors)
+        )
+
+    if cfg.log_group:
+        ips = _analyse_from_cloudwatch(cfg, check.fields)
+    else:
+        ips = _analyse_from_s3(cfg, check.fields)
 
     if not ips:
         raise RuntimeError(
@@ -413,6 +658,11 @@ def run_analyse(cfg: AnalyseConfig) -> dict:
         "days": cfg.days,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "source": "cloudwatch" if cfg.log_group else "s3",
+        "flow_log_check": {
+            "verified": check.verified,
+            "fields": check.fields,
+            "warnings": check.warnings,
+        },
         "ips": sorted(set(ips)),
     }
     with open(cfg.out_path, "w", encoding="utf-8") as fh:

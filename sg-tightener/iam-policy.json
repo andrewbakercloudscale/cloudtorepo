@@ -10,6 +10,7 @@
         "ec2:DescribeNetworkInterfaces",
         "ec2:DescribeVpcs",
         "ec2:DescribeRegions",
+        "ec2:DescribeFlowLogs",
         "logs:DescribeLogGroups",
         "logs:StartQuery",
         "logs:GetQueryResults",

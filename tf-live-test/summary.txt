@@ -1,0 +1,7 @@
+cloudtorepo summary
+Generated: 2026-03-25T11:06:09Z
+Accounts:  987267051295
+Regions:   af-south-1
+Services:  ec2,ebs,ecs,eks,lambda,vpc,elb,cloudfront,route53,acm,rds,dynamodb,elasticache,msk,s3,sqs,sns,apigateway,iam,kms,secretsmanager,ssm,cloudwatch,eventbridge,ecr,stepfunctions,wafv2,transitgateway,vpcendpoints,config,efs,opensearch,kinesis,cognito,cloudtrail,guardduty,backup,redshift,glue,ses,codepipeline,codebuild,documentdb,fsx,transfer,elasticbeanstalk,apprunner,memorydb,athena,lakeformation,servicecatalog,lightsail
+---
+Total import blocks written: 366

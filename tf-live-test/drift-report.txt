@@ -1,0 +1,28 @@
+
+CloudtoRepo Drift Report
+Generated: 2026-03-25T11:10:17Z
+Output dir: ./tf-live-test
+Mode: report-only (use --apply to update imports.tf)
+=======================================================
+
+  987267051295 / af-south-1 / vpc
+  -------------------------------------------------------
+  REMOVED  (8 resource(s) in imports.tf, no longer in AWS)
+    - aws_subnet.defaultvpcsubnetb  (id: subnet-93d3d4eb)
+    - aws_subnet.defaultvpcsubnetc  (id: subnet-52557418)
+    - aws_subnet.defaultvpcsubneta  (id: subnet-b156b3d8)
+    - aws_security_group.cloudflare_proxy  (id: sg-02c2539d27ffe5a5f)
+    - aws_security_group.launch_wizard_6  (id: sg-011a26aef17beff13)
+    - aws_security_group.launch_wizard_7  (id: sg-024bd977787fb2789)
+    - aws_route_table.defaultroutetable  (id: rtb-6157b208)
+    - aws_internet_gateway.defaultvpcigw  (id: igw-5a56b333)
+
+=======================================================
+Summary
+-------
+Unchanged:        358
+New (not yet imported):  0
+Removed (stale):  8
+
+Run with --apply to update imports.tf files automatically.
+

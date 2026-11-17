@@ -40,7 +40,6 @@ function main() {
     --include "*.html" \
     --include "*.css" \
     --exclude "tests/*" \
-    --exclude "sg-tightener/*" \
     --exclude "tf-live-test/*" \
     --exclude "tf-live-test-new/*" \
     --exclude "scripts/*" \
@@ -61,7 +60,6 @@ function main() {
     --include "ads.txt" \
     --include "robots.txt" \
     --exclude "tests/*" \
-    --exclude "sg-tightener/*" \
     --exclude "tf-live-test/*" \
     --exclude "tf-live-test-new/*" \
     --exclude "scripts/*" \

@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+- sg-tightener moved to its own repository,
+  <https://github.com/andrewbakercloudscale/sg-tightener>, with its history.
+  `tightener.html` now links there; the `sg-tightener/` folder is removed here.
+
+---
+
 ## [1.7.2] — 2026-03-25
 
 ### Added

@@ -1,0 +1,4 @@
+{
+  "_moved": "iam-policy.json has moved to https://github.com/andrewbakercloudscale/sg-tightener/blob/main/iam-policy.json",
+  "_note": "sg-tightener now lives in its own repository. This file only exists so old links land somewhere useful; it is not a valid policy."
+}

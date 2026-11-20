@@ -1,0 +1,3 @@
+# requirements.txt has moved.
+# sg-tightener now lives in its own repository:
+#     https://github.com/andrewbakercloudscale/sg-tightener/blob/main/requirements.txt

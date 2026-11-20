@@ -256,11 +256,12 @@ python sg_compact.py revert <span class="flag">--manifest</span> sg_compact-mani
 <hr class="divider" />
 <section id="algorithm">
   <div class="section-label">The CIDR-collapsing algorithm</div>
-  <h2>Three layers: never more than 60 rules per group</h2>
+  <h2>Two layers: never more than 60 rules per group</h2>
   <p class="section-intro">
     AWS hard-caps a security group at 60 inbound rules by default. If 200 IPs
     have connected, you can't write 200 /32s, and a /16 reintroduces the
-    permissiveness you're trying to remove. The algorithm finds the middle ground.
+    permissiveness you're trying to remove. The algorithm finds the narrowest
+    rules that fit.
   </p>
 
   <div class="hard-grid">
@@ -274,26 +275,22 @@ python sg_compact.py revert <span class="flag">--manifest</span> sg_compact-mani
       <p>
         Densely-populated subnets collapse aggressively. Sparse outliers stay
         as /32 host routes. Nothing widens past the IP's RFC 1918 home block.
+        These blocks are the finest result: the headroom they leave for hosts
+        not yet seen is never traded away for a spare rule.
       </p>
     </div>
     <div class="hard-card reveal">
-      <h3>Layer 2 &middot; tolerance widening</h3>
+      <h3>Layer 2 &middot; exact fit to the budget</h3>
       <p>
-        If layer 1 produces more rules than the group's budget, widen the tolerance
-        in 5% steps up to 95%, recomputing each time. Every step is logged so the
-        operator can see exactly what trade-off was made.
+        If layer 1 produces more rules than the group's budget, choose the
+        rules that cover every block while opening the fewest addresses nobody
+        was seen using. This is solved exactly, not by trial and error, in
+        milliseconds for thousands of addresses.
       </p>
-    </div>
-    <div class="hard-card reveal">
-      <h3>Layer 3 &middot; force-fit merge</h3>
       <p>
-        If 95% tolerance is still over budget, merge the closest pair of blocks
-        whose union introduces the smallest amount of new untrusted space.
         Merges never cross an RFC 1918 boundary, so a 10/8 block is never fused
-        with a 172.16/12 block.
-      </p>
-      <p>
-        Force-fit prints a loud warning recommending an AWS Support quota increase.
+        with a 172.16/12 block. A warning recommends an AWS Support quota
+        increase when precision had to be given up.
       </p>
     </div>
     <div class="hard-card reveal">
@@ -303,6 +300,8 @@ python sg_compact.py revert <span class="flag">--manifest</span> sg_compact-mani
         each group, not the global limit. If a group has 25 rules being left
         alone (SG references, public 0.0.0.0/0, already-tight CIDRs), the
         budget for replacements is 60 &minus; 25 &minus; (broad rules removed).
+        The budget is then shared between the broad rules being replaced so
+        the group as a whole opens the fewest unused addresses.
       </p>
       <p>
         Prevents the failure mode where apply succeeds in revoking but fails

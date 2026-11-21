@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="shortcut icon" href="favicon.svg" />
-  <meta name="description" content="Least-privilege AWS security groups: stop pinning broad CIDR blocks like 10.0.0.0/8 in Terraform. sg-tightener fits each security group's rules to the fewest IP addresses VPC flow logs show actually connect. Open source, reversible." />
+  <meta name="description" content="Least-privilege AWS security groups: stop pinning broad CIDR blocks like 10.0.0.0/8 in Terraform: every security group lives in a local database with an audit trail. sg-tightener fits each security group's rules to the fewest IP addresses VPC flow logs show actually connect. Open source, reversible." />
   <meta name="keywords" content="AWS security groups, security group rules, least privilege, VPC flow logs, Terraform security groups, CIDR, zero trust, microsegmentation, lateral movement, AWS network security" />
   <link rel="canonical" href="https://cloudtorepo.com/tightener.html" />
   <meta property="og:title" content="sg-tightener: least-privilege AWS security groups from VPC flow logs" />
@@ -101,7 +101,7 @@
       <h3>The new world</h3>
       <div class="tags"><span class="tag">evidence-driven</span><span class="tag">out of Terraform</span><span class="tag">shrinks over time</span></div>
       <ol style="font-size:0.85rem;color:var(--muted);margin-top:0.75rem;padding-left:1.1rem;line-height:1.6;">
-        <li><strong style="color:var(--text);">Take security group sources out of Terraform.</strong> Keep the groups, attachments, security-group references and deliberate public rules in code; leave private CIDR sources to sg-tightener.</li>
+        <li><strong style="color:var(--text);">Take security groups out of Terraform, completely.</strong> Every group and rule lives in sg-tightener's local database with a hash-chained audit trail of who changed what and why. Terraform keeps the attachments and refers to groups by id. You cannot manage security groups in Terraform with this solution.</li>
         <li><strong style="color:var(--text);">Let evidence decide who gets in.</strong> VPC flow logs show which addresses actually reached each interface, on which port, over months.</li>
         <li><strong style="color:var(--text);">Let an algorithm spend the rule budget.</strong> When the callers do not fit, sg-tightener chooses exactly the blocks that open the fewest addresses nobody was seen using.</li>
         <li><strong style="color:var(--text);">Make it safe.</strong> Plan, review, apply with a manifest, revert; diagnose what a change cut off; review and alert when something breaks or a rule is too open.</li>
@@ -113,7 +113,7 @@
       <thead><tr style="text-align:left;border-bottom:1px solid var(--border);"><th style="padding:0.6rem;"></th><th style="padding:0.6rem;">Old world</th><th style="padding:0.6rem;">New world</th></tr></thead>
       <tbody style="color:var(--muted);">
         <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.6rem;color:var(--text);">Who decides the sources</td><td style="padding:0.6rem;">A person, once, guessing</td><td style="padding:0.6rem;">Flow log evidence, refreshed</td></tr>
-        <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.6rem;color:var(--text);">Where they live</td><td style="padding:0.6rem;">Hard-coded in Terraform</td><td style="padding:0.6rem;">Managed by sg-tightener, outside Terraform</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.6rem;color:var(--text);">Where they live</td><td style="padding:0.6rem;">Hard-coded in Terraform</td><td style="padding:0.6rem;">A local database with an audit trail; never Terraform</td></tr>
         <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.6rem;color:var(--text);">Typical rule</td><td style="padding:0.6rem;"><code>10.0.0.0/8</code> or a data centre <code>/16</code></td><td style="padding:0.6rem;">The fewest exact blocks covering the real callers</td></tr>
         <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.6rem;color:var(--text);">Addresses let in</td><td style="padding:0.6rem;">Millions</td><td style="padding:0.6rem;">Tens to hundreds</td></tr>
         <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.6rem;color:var(--text);">One compromised host can reach</td><td style="padding:0.6rem;">Everything that trusts its network</td><td style="padding:0.6rem;">Only what it was already talking to</td></tr>
@@ -126,7 +126,7 @@
     inside the network, <strong style="color:var(--text);">trusting an entire data centre or corporate
     CIDR block is an extremely high-risk strategy</strong>. The attacker does not need an exploit, only an
     address in a range you already allow.
-    <a href="https://github.com/andrewbakercloudscale/sg-tightener/blob/main/docs/terraform.md" target="_blank" rel="noopener" style="color:var(--accent2);">How to take security group sources out of Terraform without an outage →</a>
+    <a href="https://github.com/andrewbakercloudscale/sg-tightener/blob/main/docs/terraform.md" target="_blank" rel="noopener" style="color:var(--accent2);">How to move security groups out of Terraform, once, without an outage →</a>
   </p>
 </section>
 
@@ -254,9 +254,24 @@ Lateral-movement surface area reduction:  <span class="str">99.96%</span></pre>
       <a href="https://github.com/andrewbakercloudscale/sg-tightener/blob/main/sg_viz.py" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.4rem;margin-top:0.75rem;font-size:0.78rem;color:var(--accent2);text-decoration:none;"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub →</a>
     </div>
     <div class="service-card reveal">
+      <h3>sg_db.py</h3>
+      <div class="tags">
+        <span class="tag">source of truth</span><span class="tag">audit trail</span><span class="tag">new in 3.0.0</span>
+      </div>
+      <p style="font-size:0.8rem;color:var(--muted);margin-top:0.5rem;">
+        Every security group and rule in a local SQLite database. Every change,
+        by sg-tightener or by a person, is recorded with who, why and the
+        ticket in an append-only, hash-chained audit trail. <code>reconcile</code>
+        finds changes made outside the tool (console, CLI, Terraform), names who
+        made them from CloudTrail, and offers to put them back. Security groups
+        cannot be managed in Terraform with this solution.
+      </p>
+      <a href="https://github.com/andrewbakercloudscale/sg-tightener/blob/main/sg_db.py" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.4rem;margin-top:0.75rem;font-size:0.78rem;color:var(--accent2);text-decoration:none;"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub →</a>
+    </div>
+    <div class="service-card reveal">
       <h3>sg_review.py</h3>
       <div class="tags">
-        <span class="tag">read-only</span><span class="tag">one HTML page</span><span class="tag">real-time alerts in 2.8.0</span>
+        <span class="tag">read-only</span><span class="tag">one HTML page</span><span class="tag">rejected-traffic alerts in 3.0.0</span>
       </div>
       <p style="font-size:0.8rem;color:var(--muted);margin-top:0.5rem;">
         One account's inbound rules against up to six months of flow logs, as a
@@ -276,8 +291,9 @@ Lateral-movement surface area reduction:  <span class="str">99.96%</span></pre>
         to Tor or scanners, the default group in use and cross-account trust,
         alerts on any rule opened wide in the last day, and sends findings to
         AWS Security Hub. Every tool takes <code>--profile</code> for SSO.
-        Since 2.8.0 an EventBridge rule and Lambda alert within seconds when a
-        rule is opened wide, and can revoke it automatically.
+        Since 3.0.0 <code>watch --loop</code> alerts on rejected traffic every
+        5 minutes, and every fix it prints runs through the security group
+        database.
       </p>
       <a href="https://github.com/andrewbakercloudscale/sg-tightener/blob/main/sg_review.py" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.4rem;margin-top:0.75rem;font-size:0.78rem;color:var(--accent2);text-decoration:none;"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub →</a>
     </div>
@@ -619,7 +635,7 @@ python sg_compact.py revert <span class="flag">--manifest</span> sg_compact-mani
 <hr class="divider" />
 <section id="tests">
   <div class="section-label">Quality</div>
-  <h2>385 regression tests, no AWS credentials needed</h2>
+  <h2>398 regression tests, no AWS credentials needed</h2>
   <p class="section-intro">
     The CIDR-collapsing algorithm has enough edge cases that a regression
     suite is essential before any change. Every algorithmic invariant, parser,
@@ -629,11 +645,11 @@ python sg_compact.py revert <span class="flag">--manifest</span> sg_compact-mani
   </p>
   <div class="hard-grid">
     <div class="hard-card reveal" style="text-align:center;">
-      <div style="font-size:2rem;font-weight:800;color:var(--accent);margin-bottom:0.4rem;">385</div>
+      <div style="font-size:2rem;font-weight:800;color:var(--accent);margin-bottom:0.4rem;">398</div>
       <div style="font-size:0.85rem;color:var(--muted);">pytest cases</div>
     </div>
     <div class="hard-card reveal" style="text-align:center;">
-      <div style="font-size:2rem;font-weight:800;color:var(--accent2);margin-bottom:0.4rem;">39</div>
+      <div style="font-size:2rem;font-weight:800;color:var(--accent2);margin-bottom:0.4rem;">45</div>
       <div style="font-size:0.85rem;color:var(--muted);">integration tests</div>
       <div style="font-size:0.8rem;color:var(--muted);margin-top:0.25rem;opacity:0.7;">analyse &middot; plan &middot; apply &middot; revert &middot; org reports, on moto</div>
     </div>
@@ -654,7 +670,7 @@ source .venv/bin/activate
 pip install -r requirements-dev.txt
 python -m pytest
 
-<span class="out">385 passed in 31s</span></pre>
+<span class="out">398 passed in 36s</span></pre>
       <a href="https://github.com/andrewbakercloudscale/sg-tightener/tree/main/tests" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.5rem;margin-top:0.75rem;font-size:0.85rem;color:var(--accent2);text-decoration:none;"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View the tests on GitHub →</a>
     </div>
   </div>

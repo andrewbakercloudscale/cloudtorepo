@@ -256,14 +256,17 @@ Lateral-movement surface area reduction:  <span class="str">99.96%</span></pre>
     <div class="service-card reveal">
       <h3>sg_console.py</h3>
       <div class="tags">
-        <span class="tag">web console</span><span class="tag">two-person approval</span><span class="tag">new in 4.0.0</span>
+        <span class="tag">web console</span><span class="tag">surveillance first</span><span class="tag">per-asset groups in 5.0.0</span>
       </div>
       <p style="font-size:0.8rem;color:var(--muted);margin-top:0.5rem;">
         One local web page for every account: every security group and rule,
         change requests to propose and approve (a different person must approve
         each one), apply and reconcile, the audit trail with search, and every
         rejected flow across an OU, with a button to propose allowing one. It
-        listens on 127.0.0.1 only, behind a one-time token.
+        listens on 127.0.0.1 only, behind a one-time token. Since 5.0.0 every
+        account starts in surveillance mode until a DryRun permission check
+        passes; one asset can get a group of its own; and rejected traffic is
+        marked new, IPv6, internal or external, and scanning.
       </p>
       <a href="https://github.com/andrewbakercloudscale/sg-tightener/blob/main/sg_console.py" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.4rem;margin-top:0.75rem;font-size:0.78rem;color:var(--accent2);text-decoration:none;"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub →</a>
     </div>
@@ -653,7 +656,7 @@ python sg_compact.py revert <span class="flag">--manifest</span> sg_compact-mani
 <hr class="divider" />
 <section id="tests">
   <div class="section-label">Quality</div>
-  <h2>409 regression tests, no AWS credentials needed</h2>
+  <h2>431 regression tests, no AWS credentials needed</h2>
   <p class="section-intro">
     The CIDR-collapsing algorithm has enough edge cases that a regression
     suite is essential before any change. Every algorithmic invariant, parser,
@@ -663,7 +666,7 @@ python sg_compact.py revert <span class="flag">--manifest</span> sg_compact-mani
   </p>
   <div class="hard-grid">
     <div class="hard-card reveal" style="text-align:center;">
-      <div style="font-size:2rem;font-weight:800;color:var(--accent);margin-bottom:0.4rem;">409</div>
+      <div style="font-size:2rem;font-weight:800;color:var(--accent);margin-bottom:0.4rem;">431</div>
       <div style="font-size:0.85rem;color:var(--muted);">pytest cases</div>
     </div>
     <div class="hard-card reveal" style="text-align:center;">
@@ -688,7 +691,7 @@ source .venv/bin/activate
 pip install -r requirements-dev.txt
 python -m pytest
 
-<span class="out">409 passed in 40s</span></pre>
+<span class="out">431 passed in 48s</span></pre>
       <a href="https://github.com/andrewbakercloudscale/sg-tightener/tree/main/tests" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.5rem;margin-top:0.75rem;font-size:0.85rem;color:var(--accent2);text-decoration:none;"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View the tests on GitHub →</a>
     </div>
   </div>

@@ -3,17 +3,31 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>sg-tightener | CloudtoRepo</title>
+  <title>Least-privilege AWS security groups from VPC flow logs | sg-tightener</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="shortcut icon" href="favicon.svg" />
-  <meta name="description" content="Evidence-based AWS security group CIDR tightening. Replace broad RFC 1918 rules with the tightest covering blocks observed in VPC flow logs." />
-  <meta property="og:title" content="sg-tightener: evidence-based AWS security group tightening" />
-  <meta property="og:description" content="Replace assumption-based /16 trust with empirically-derived CIDR blocks observed in VPC flow logs." />
-  <meta property="og:image" content="https://cloudtorepo.com/cloudtorepo.png" />
+  <meta name="description" content="Least-privilege AWS security groups: stop pinning broad CIDR blocks like 10.0.0.0/8 in Terraform. sg-tightener fits each security group's rules to the fewest IP addresses VPC flow logs show actually connect. Open source, reversible." />
+  <meta name="keywords" content="AWS security groups, security group rules, least privilege, VPC flow logs, Terraform security groups, CIDR, zero trust, microsegmentation, lateral movement, AWS network security" />
+  <link rel="canonical" href="https://cloudtorepo.com/tightener.html" />
+  <meta property="og:title" content="sg-tightener: least-privilege AWS security groups from VPC flow logs" />
+  <meta property="og:description" content="Every allowed IP address is a risk. Replace broad CIDR blocks frozen in Terraform with the fewest addresses that cover real traffic." />
+  <meta property="og:image" content="https://cloudtorepo.com/sg-tightener-social.png" />
+  <meta property="og:image:width" content="1280" />
+  <meta property="og:image:height" content="640" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Least-privilege AWS security groups from VPC flow logs" />
+  <meta name="twitter:image" content="https://cloudtorepo.com/sg-tightener-social.png" />
   <meta property="og:url" content="https://cloudtorepo.com/tightener.html" />
   <meta property="og:type" content="website" />
   <link rel="stylesheet" href="style.css" />
+  <script type="application/ld+json">
+  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "sg-tightener",
+   "applicationCategory": "SecurityApplication", "operatingSystem": "macOS, Linux, Windows (Python 3.9+)",
+   "description": "Least-privilege AWS security groups from VPC flow logs: replaces broad CIDR rules with the fewest IP ranges that cover observed traffic, with plan, apply, revert, diagnose and an HTML security group review.",
+   "url": "https://cloudtorepo.com/tightener.html", "codeRepository": "https://github.com/andrewbakercloudscale/sg-tightener",
+   "license": "https://opensource.org/licenses/MIT", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}}
+  </script>
 </head>
 <body>
 
@@ -32,7 +46,7 @@
 <!-- PAGE HERO -->
 <div class="page-hero">
   <div class="page-hero-label">Security extension</div>
-  <h1>sg-tightener: evidence-based CIDR reduction</h1>
+  <h1>Least-privilege AWS security groups, from VPC flow logs</h1>
   <p>
     Most enterprise AWS estates did not move to the cloud; they extended into it.
     Direct Connect lands, someone writes a <code>10.0.0.0/16</code> rule, and that
@@ -40,6 +54,11 @@
     for years. <strong style="color:var(--text);">sg-tightener</strong> reads your VPC flow logs,
     observes which IPs have actually connected, and replaces those broad rules with
     the tightest covering CIDRs, without breaching AWS rule limits.
+  </p>
+  <p style="margin-top:0.75rem;">
+    <strong style="color:var(--text);">The shift:</strong> security group sources are not
+    configuration to freeze in Terraform. Every IP address a rule lets in is risk, and each group's
+    limited rule slots are a budget to spend on the fewest addresses that cover real traffic.
   </p>
   <div class="hero-actions" style="margin-top:1.5rem;">
     <a class="btn-primary" href="https://github.com/andrewbakercloudscale/sg-tightener" target="_blank" rel="noopener">
@@ -49,6 +68,67 @@
     <a class="btn-outline" href="https://github.com/andrewbakercloudscale/sg-tightener#documentation" target="_blank" rel="noopener">Read the documentation →</a>
   </div>
 </div>
+
+<!-- THE SHIFT -->
+<hr class="divider" />
+<section id="shift">
+  <div class="section-label">The fundamental shift</div>
+  <h2>IP addresses are risk, not configuration</h2>
+  <p class="section-intro" style="max-width:100%;">
+    Most organisations treat AWS security groups as static configuration. Someone writes the inbound
+    rules once, usually in Terraform, and they stay for years. Nobody knows ahead of time exactly which
+    servers, data centre hosts, VPN users or partner systems will call a service, and a security group
+    holds only about 60 rules, so people do the one thing sure to work: they let in whole blocks.
+  </p>
+  <div class="service-grid" style="margin-top:1.5rem;">
+    <div class="service-card reveal" style="border-color:rgba(208,59,59,.55);">
+      <h3>The old world</h3>
+      <div class="tags"><span class="tag">hand-written</span><span class="tag">pinned in Terraform</span><span class="tag">only grows</span></div>
+      <pre style="margin-top:0.75rem;"><span class="kw">ingress</span> {
+  from_port   = <span class="str">5432</span>
+  to_port     = <span class="str">5432</span>
+  protocol    = <span class="str">"tcp"</span>
+  cidr_blocks = [<span class="str">"10.0.0.0/8"</span>]  <span class="cm"># 16.7 million addresses</span>
+}</pre>
+      <ul style="font-size:0.85rem;color:var(--muted);margin-top:0.75rem;padding-left:1.1rem;line-height:1.6;">
+        <li><strong style="color:var(--text);">Enormous pools:</strong> a <code>/8</code> is 16.7 million addresses, a data centre <code>/16</code> 65,536, for a database with a dozen real callers.</li>
+        <li><strong style="color:var(--text);">Rules only grow:</strong> removing a range might break something nobody can name, so nobody does.</li>
+        <li><strong style="color:var(--text);">Terraform makes it permanent:</strong> narrowing a rule by hand is undone on the next <code>terraform apply</code>, and the rule is copied into every environment.</li>
+        <li><strong style="color:var(--text);">Trust follows the network:</strong> any compromised laptop, build agent or forgotten VM in that range reaches your databases and admin ports directly.</li>
+      </ul>
+    </div>
+    <div class="service-card reveal" style="border-color:rgba(47,158,91,.55);">
+      <h3>The new world</h3>
+      <div class="tags"><span class="tag">evidence-driven</span><span class="tag">out of Terraform</span><span class="tag">shrinks over time</span></div>
+      <ol style="font-size:0.85rem;color:var(--muted);margin-top:0.75rem;padding-left:1.1rem;line-height:1.6;">
+        <li><strong style="color:var(--text);">Take security group sources out of Terraform.</strong> Keep the groups, attachments, security-group references and deliberate public rules in code; leave private CIDR sources to sg-tightener.</li>
+        <li><strong style="color:var(--text);">Let evidence decide who gets in.</strong> VPC flow logs show which addresses actually reached each interface, on which port, over months.</li>
+        <li><strong style="color:var(--text);">Let an algorithm spend the rule budget.</strong> When the callers do not fit, sg-tightener chooses exactly the blocks that open the fewest addresses nobody was seen using.</li>
+        <li><strong style="color:var(--text);">Make it safe.</strong> Plan, review, apply with a manifest, revert; diagnose what a change cut off; review and alert when something breaks or a rule is too open.</li>
+      </ol>
+    </div>
+  </div>
+  <div style="overflow-x:auto;margin-top:1.5rem;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead><tr style="text-align:left;border-bottom:1px solid var(--border);"><th style="padding:0.6rem;"></th><th style="padding:0.6rem;">Old world</th><th style="padding:0.6rem;">New world</th></tr></thead>
+      <tbody style="color:var(--muted);">
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.6rem;color:var(--text);">Who decides the sources</td><td style="padding:0.6rem;">A person, once, guessing</td><td style="padding:0.6rem;">Flow log evidence, refreshed</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.6rem;color:var(--text);">Where they live</td><td style="padding:0.6rem;">Hard-coded in Terraform</td><td style="padding:0.6rem;">Managed by sg-tightener, outside Terraform</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.6rem;color:var(--text);">Typical rule</td><td style="padding:0.6rem;"><code>10.0.0.0/8</code> or a data centre <code>/16</code></td><td style="padding:0.6rem;">The fewest exact blocks covering the real callers</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.6rem;color:var(--text);">Addresses let in</td><td style="padding:0.6rem;">Millions</td><td style="padding:0.6rem;">Tens to hundreds</td></tr>
+        <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.6rem;color:var(--text);">One compromised host can reach</td><td style="padding:0.6rem;">Everything that trusts its network</td><td style="padding:0.6rem;">Only what it was already talking to</td></tr>
+        <tr><td style="padding:0.6rem;color:var(--text);">Over time</td><td style="padding:0.6rem;">Rules grow, never shrink</td><td style="padding:0.6rem;">Unused access is found and removed</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="section-intro" style="max-width:100%;margin-top:1.5rem;">
+    With ransomware crews, supply chain compromises and state actors all working from a first foothold
+    inside the network, <strong style="color:var(--text);">trusting an entire data centre or corporate
+    CIDR block is an extremely high-risk strategy</strong>. The attacker does not need an exploit, only an
+    address in a range you already allow.
+    <a href="https://github.com/andrewbakercloudscale/sg-tightener/blob/main/docs/terraform.md" target="_blank" rel="noopener" style="color:var(--accent2);">How to take security group sources out of Terraform without an outage →</a>
+  </p>
+</section>
 
 <!-- HEADLINE NUMBERS -->
 <hr class="divider" />

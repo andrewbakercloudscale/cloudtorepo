@@ -256,7 +256,7 @@ Lateral-movement surface area reduction:  <span class="str">99.96%</span></pre>
     <div class="service-card reveal">
       <h3>sg_console.py</h3>
       <div class="tags">
-        <span class="tag">web console</span><span class="tag">surveillance first</span><span class="tag">per-asset groups in 5.0.0</span><span class="tag">tighten on the timeline in 5.1.0</span><span class="tag">blast radius in 5.2.0</span><span class="tag">threat lists in 5.3.0</span><span class="tag">what we know in 5.4.0</span><span class="tag">a year of timeline in 5.5.0</span><span class="tag">no data shown as no data in 5.6.0</span><span class="tag">where traffic comes from and PrivateLink tab in 5.7.0</span><span class="tag">over-provisioning by owner in 5.8.0</span><span class="tag">unused addresses stacked by owner in 5.8.1</span><span class="tag">SSO sign-in and always-running console in 5.9.0</span><span class="tag">port lookup in 5.10.0</span><span class="tag">guarded extract wizard in 5.11.0</span><span class="tag">risk overview in 5.12.0</span><span class="tag">RAG per asset in 5.13.0</span><span class="tag">read a whole OU in 5.15.0</span><span class="tag">only accounts that spend in 5.16.0</span><span class="tag">where to focus in 5.17.0</span><span class="tag">tighten a whole account in 5.18.0</span><span class="tag">remediate an account in 5.19.0</span><span class="tag">pkt-srcaddr flow logs in 5.19.3</span>
+        <span class="tag">web console</span><span class="tag">surveillance first</span><span class="tag">per-asset groups in 5.0.0</span><span class="tag">tighten on the timeline in 5.1.0</span><span class="tag">blast radius in 5.2.0</span><span class="tag">threat lists in 5.3.0</span><span class="tag">what we know in 5.4.0</span><span class="tag">a year of timeline in 5.5.0</span><span class="tag">no data shown as no data in 5.6.0</span><span class="tag">where traffic comes from and PrivateLink tab in 5.7.0</span><span class="tag">over-provisioning by owner in 5.8.0</span><span class="tag">unused addresses stacked by owner in 5.8.1</span><span class="tag">SSO sign-in and always-running console in 5.9.0</span><span class="tag">port lookup in 5.10.0</span><span class="tag">guarded extract wizard in 5.11.0</span><span class="tag">risk overview in 5.12.0</span><span class="tag">RAG per asset in 5.13.0</span><span class="tag">read a whole OU in 5.15.0</span><span class="tag">only accounts that spend in 5.16.0</span><span class="tag">where to focus in 5.17.0</span><span class="tag">tighten a whole account in 5.18.0</span><span class="tag">remediate an account in 5.19.0</span><span class="tag">pkt-srcaddr flow logs in 5.19.3</span><span class="tag">external, SaaS and internal risk and risk by owner in 5.19.6</span>
       </div>
       <p style="font-size:0.8rem;color:var(--muted);margin-top:0.5rem;">
         One local web page for every account: every security group and rule,
@@ -317,7 +317,8 @@ Lateral-movement surface area reduction:  <span class="str">99.96%</span></pre>
         groups merged, untick anything sensitive, and the approver only
         approves. 5.19.3 reads flow logs that record only packet addresses
         (pkt-srcaddr), hides regions with no security group in use and sorts
-        the rest by relevance.
+        the rest by relevance. 5.19.6 splits risk into external, SaaS and
+        internal, and charts risk by owner from any account tag.
       </p>
       <a href="https://github.com/andrewbakercloudscale/sg-tightener/blob/main/sg_console.py" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.4rem;margin-top:0.75rem;font-size:0.78rem;color:var(--accent2);text-decoration:none;"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub →</a>
     </div>
@@ -707,7 +708,7 @@ python sg_compact.py revert <span class="flag">--manifest</span> sg_compact-mani
 <hr class="divider" />
 <section id="tests">
   <div class="section-label">Quality</div>
-  <h2>502 regression tests, no AWS credentials needed</h2>
+  <h2>507 regression tests, no AWS credentials needed</h2>
   <p class="section-intro">
     The CIDR-collapsing algorithm has enough edge cases that a regression
     suite is essential before any change. Every algorithmic invariant, parser,
